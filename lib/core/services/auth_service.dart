@@ -13,6 +13,7 @@ class AuthService {
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
         },
         body: jsonEncode({
           'email': email,
@@ -71,6 +72,7 @@ class AuthService {
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
         },
         body: jsonEncode({
           'name': name,
