@@ -1,7 +1,7 @@
 # 🌿 MOYA Mobile — AI-Powered Accessible Tourism Platform
 
 <p align="center">
-  <img src="assets/images/logo/logo.png" alt="MOYA Logo" width="120" />
+  <img src="assets/images/logo/logo1.png" alt="MOYA Logo" width="120" />
 </p>
 
 <p align="center">
