@@ -1,4 +1,4 @@
-# 🌿 MOYA Mobile — AI-Powered Accessible Tourism Platform
+# MOYA Mobile — AI-Powered Accessible Tourism Platform
 
 <p align="center">
   <img src="assets/images/logo/logo1.png" alt="MOYA Logo" width="120" />
@@ -17,7 +17,7 @@
 
 ---
 
-## 📖 Table of Contents
+## Table of Contents
 
 - [About MOYA](#-about-moya)
 - [Key Features](#-key-features)
@@ -34,35 +34,35 @@
 
 ---
 
-## 🌟 About MOYA
+## About MOYA
 
 **MOYA** is an inclusive smart tourism mobile application built with Flutter. It is designed to remove barriers for travelers with disabilities, senior tourists, and families by providing reliable information on verified accessibility facilities, smart Decision Support System (DSS) itinerary recommendations, live GPS route visualization, and a gamified crowdsourced facility reporting system.
 
 ---
 
-## ✨ Key Features
+## Key Features
 
-### 1. 🤖 AI-Powered Route Recommendation (DSS)
+### 1. AI-Powered Route Recommendation (DSS)
 - **Multi-Constraint Optimization**: Generates personalized travel itineraries based on selected accessibility needs, tourism categories, budget limits, and available time duration.
 - **Multiple-Choice Accessibility Filters**: Filter places with ramps, elevators, wheelchair-accessible restrooms, disabled parking, tactile guiding blocks, and braille guides.
 - **Real-Time Geolocation Anchoring**: Calibrates recommendations based on the user's live coordinates in Batam and surrounding regions.
 
-### 2. 🗺️ Interactive Maps & Waypoint Routes
+### 2. Interactive Maps & Waypoint Routes
 - **OpenStreetMap & FlutterMap**: Fully interactive map canvas supporting polyline rendering, sequenced stop markers, and dynamic map centering.
 - **Draggable Itinerary Sheet**: Smooth, responsive bottom sheet containing full route details, cost estimates, estimated time, and stop management.
 - **Custom Route Builder**: Add any destination directly from the catalog, reorder or remove stops, and preview custom routes instantly.
 
-### 3. 🏛️ Accessible Destinations Catalog
+### 3. Accessible Destinations Catalog
 - **Live Search & Category Filtering**: Browse and search curated destinations by tourism categories (Culinary, Nature, Cultural, Shopping, Religious, etc.).
 - **Accessibility Badges**: Instant visual indicators for verified accessible amenities at each attraction.
 - **Detailed Destination Profiles**: Comprehensive information including operational hours, entrance fees, facilities, photos, and verified visitor reviews.
 
-### 4. 📢 Crowdsourced Facility Reporting & Reviews
+### 4. Crowdsourced Facility Reporting & Reviews
 - **Destination-Specific Facility Reports**: Report damaged, obstructed, or unavailable accessibility facilities with photo proof and status tags.
 - **Photo Evidence Upload**: Integrated camera and gallery picker with multipart HTTP upload.
 - **Inclusive Reviews & Ratings**: Submit detailed accessibility feedback and read verified reviews from other travelers.
 
-### 5. 🏆 Gamification & Contributor Leaderboard
+### 5. Gamification & Contributor Leaderboard
 - **XP & Achievement Badges**: Earn experience points for submitting verified condition reports, writing reviews, and completing travel itineraries.
 - **Rank Tiering**: Progress through tiers (*Bronze, Silver, Gold, Platinum*) and climb the community leaderboard.
 
@@ -73,7 +73,7 @@
 
 ---
 
-## 🛠 Tech Stack & Dependencies
+## Tech Stack & Dependencies
 
 | Category | Technology |
 |---|---|
@@ -87,7 +87,7 @@
 
 ---
 
-## 📂 Architecture & Directory Structure
+## Architecture & Directory Structure
 
 The project follows a **Feature-Driven Modular Architecture**:
 
@@ -175,7 +175,7 @@ lib/
 
 ---
 
-## 🌐 API Configuration
+## API Configuration
 
 All endpoint paths and base URLs are defined in [`lib/core/constants/api_constants.dart`](file:///d:/moya_mobile/lib/core/constants/api_constants.dart):
 
@@ -225,7 +225,7 @@ graph TD
 
 ---
 
-## 🤝 Contributing
+## Contributing
 
 Contributions, issues, and feature requests are welcome!
 
@@ -237,9 +237,10 @@ Contributions, issues, and feature requests are welcome!
 
 ---
 
-## 📄 License
+## License
 
-Distributed under the **MIT License**. See `LICENSE` for more information.
+For Batam Singapore 2026 Hackathon Submission.
+
 
 ---
 
