@@ -569,7 +569,7 @@ class _RouteRecommendationPageState extends State<RouteRecommendationPage> {
                                   width: double.infinity,
                                   child: ElevatedButton.icon(
                                     onPressed: () {
-                                      Navigator.pushNamed(context, '/route_recommendation_form');
+                                      Navigator.pushNamed(context, '/route_form');
                                     },
                                     icon: const Icon(Icons.auto_awesome, size: 17),
                                     label: const Text(

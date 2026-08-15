@@ -40,6 +40,7 @@ class AppRoutes {
       leaderboard: (context) => const LeaderboardPage(),
       notification: (context) => const NotificationPage(),
       routeForm: (context) => const RouteRecommendationFormPage(),
+      '/route_recommendation_form': (context) => const RouteRecommendationFormPage(),
       '/route_recommendation': (context) => const RouteRecommendationPage(),
       reportCondition: (context) => const ReportConditionPage(),
     };
