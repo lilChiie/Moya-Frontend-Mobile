@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
+import '../../core/constants/api_constants.dart';
+import '../../core/services/destination_service.dart';
+import '../../core/services/tourism_service.dart';
+import '../../core/services/route_service.dart';
+import '../../core/utils/dialog_utils.dart';
 
 class DestinationPage extends StatefulWidget {
   const DestinationPage({super.key});
@@ -11,86 +16,122 @@ class DestinationPage extends StatefulWidget {
 
 class _DestinationPageState extends State<DestinationPage> {
   Position? _currentPosition;
-  bool _isLoadingLocation = true;
   String _searchQuery = '';
   List<String> _selectedCategories = [];
   bool _argsInitialized = false;
+  int _initialTabIndex = 0;
 
-  final List<String> _allCategories = [
-    'Nature',
-    'Culture',
-    'Shopping',
-    'Recreation',
-    'Religious',
-    'Accommodation',
-  ];
+  List<String> _allCategories = [];
+  Map<int, String> _tourismCategoriesMap = {};
 
-  final List<Map<String, dynamic>> _destinations = [
-    {
-      'title': 'Botanical Garden',
-      'category': 'Nature',
-      'image': 'assets/images/other/splashscreen.png',
-      'lat': -6.5976,
-      'lng': 106.7996,
-      'distance': null,
-      'isHighlyAccessible': true,
-    },
-    {
-      'title': 'Ancol Beach',
-      'category': 'Recreation',
-      'image': 'assets/images/other/splashscreen.png',
-      'lat': -6.1265,
-      'lng': 106.8326,
-      'distance': null,
-      'isHighlyAccessible': false,
-    },
-    {
-      'title': 'Taman Wisata Candi',
-      'category': 'Culture',
-      'image': 'assets/images/other/splashscreen.png',
-      'lat': -7.6079,
-      'lng': 110.2038,
-      'distance': null,
-      'isHighlyAccessible': true,
-    },
-    {
-      'title': 'Istiqlal Mosque',
-      'category': 'Religious',
-      'image': 'assets/images/other/splashscreen.png',
-      'lat': -6.1702,
-      'lng': 106.8310,
-      'distance': null,
-      'isHighlyAccessible': true,
-    },
-    {
-      'title': 'Grand Indonesia',
-      'category': 'Shopping',
-      'image': 'assets/images/other/splashscreen.png',
-      'lat': -6.1950,
-      'lng': 106.8208,
-      'distance': null,
-      'isHighlyAccessible': true,
-    },
-  ];
+  List<Map<String, dynamic>> _destinations = [];
+  bool _isLoadingDestinations = true;
+
+  List<Map<String, dynamic>> _historyDestinations = [];
+  bool _isLoadingHistory = false;
 
   @override
   void initState() {
     super.initState();
+    _loadData();
     _checkLocationPermission();
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-
     if (!_argsInitialized) {
-      final args = ModalRoute.of(context)?.settings.arguments;
-
-      if (args != null && args is String && args.isNotEmpty) {
-        _selectedCategories.add(args);
-      }
-
       _argsInitialized = true;
+      final args = ModalRoute.of(context)?.settings.arguments;
+      if (args is String && args.isNotEmpty) {
+        _selectedCategories = [args];
+      } else if (args is Map) {
+        if (args.containsKey('category') && args['category'] is String) {
+          _selectedCategories = [args['category']];
+        }
+        if (args['tab'] == 'history') {
+          _initialTabIndex = 1;
+        }
+      }
+      _loadHistory();
+    }
+  }
+
+  Future<void> _loadHistory() async {
+    setState(() => _isLoadingHistory = true);
+    final list = await DestinationHistoryManager().getHistory();
+    if (mounted) {
+      setState(() {
+        _historyDestinations = list;
+        _isLoadingHistory = false;
+      });
+    }
+  }
+
+  Future<void> _loadData() async {
+    final tourismService = TourismService();
+    final result = await tourismService.getTourismCategories();
+    
+    if (result['success'] && result['data'] != null) {
+      final List<dynamic> data = result['data'];
+      _tourismCategoriesMap = {
+        for (var e in data) e['id'] as int: e['name'] ?? e['title'] ?? 'Unknown'
+      };
+      
+      if (mounted) {
+        setState(() {
+          _allCategories = _tourismCategoriesMap.values.toList();
+        });
+      }
+    }
+    
+    await _fetchDestinations();
+  }
+
+  Future<void> _fetchDestinations() async {
+    final destinationService = DestinationService();
+    final result = await destinationService.getDestinations();
+
+    if (mounted) {
+      setState(() {
+        if (result['success'] && result['data'] != null) {
+          final List<dynamic> data = result['data'];
+          _destinations = data.map((e) {
+            final double lat = double.tryParse(e['latitude'].toString()) ?? 0.0;
+            final double lng = double.tryParse(e['longitude'].toString()) ?? 0.0;
+            
+            final List<dynamic>? tourismIds = e['tourism_id'];
+            List<String> categories = [];
+            if (tourismIds != null) {
+              for (var id in tourismIds) {
+                if (id is int && _tourismCategoriesMap.containsKey(id)) {
+                  categories.add(_tourismCategoriesMap[id]!);
+                }
+              }
+            }
+            if (categories.isEmpty) categories.add('Nature');
+            
+            return {
+              'id': e['id'],
+              'title': e['name'] ?? 'Unknown',
+              'categories': categories,
+              'image': e['image_url'] != null ? e['image_url'].toString().replaceFirst('http://', 'https://') : null,
+              'lat': lat,
+              'lng': lng,
+              'distance': null,
+              'isHighlyAccessible': true,
+              'description': e['description'],
+              'entrance_fee': e['entrance_fee'],
+              'estimated_duration': e['estimated_duration'],
+              'opening_time': e['opening_time'],
+              'closing_time': e['closing_time'],
+              'accessibility_id': e['accessibility_id'],
+            };
+          }).toList();
+        }
+        _isLoadingDestinations = false;
+      });
+      _calculateDistances();
     }
   }
 
@@ -106,11 +147,6 @@ class _DestinationPageState extends State<DestinationPage> {
         await Geolocator.isLocationServiceEnabled();
 
     if (!serviceEnabled) {
-      if (mounted) {
-        setState(() {
-          _isLoadingLocation = false;
-        });
-      }
       return;
     }
 
@@ -120,21 +156,11 @@ class _DestinationPageState extends State<DestinationPage> {
       permission = await Geolocator.requestPermission();
 
       if (permission == LocationPermission.denied) {
-        if (mounted) {
-          setState(() {
-            _isLoadingLocation = false;
-          });
-        }
         return;
       }
     }
 
     if (permission == LocationPermission.deniedForever) {
-      if (mounted) {
-        setState(() {
-          _isLoadingLocation = false;
-        });
-      }
       return;
     }
 
@@ -143,27 +169,21 @@ class _DestinationPageState extends State<DestinationPage> {
 
   Future<void> _getCurrentLocation() async {
     try {
-      final Position position =
-          await Geolocator.getCurrentPosition(
+      final Position position = await Geolocator.getCurrentPosition(
         locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
+          accuracy: LocationAccuracy.low,
         ),
       );
 
-      if (!mounted) return;
-
-      setState(() {
-        _currentPosition = position;
-        _isLoadingLocation = false;
-      });
+      if (mounted) {
+        setState(() {
+          _currentPosition = position;
+        });
+      }
 
       _calculateDistances();
     } catch (e) {
-      if (!mounted) return;
-
-      setState(() {
-        _isLoadingLocation = false;
-      });
+      // Ignore location fetch errors
     }
   }
 
@@ -171,16 +191,16 @@ class _DestinationPageState extends State<DestinationPage> {
     if (_currentPosition == null) return;
 
     setState(() {
-      for (final dest in _destinations) {
-        final double distanceInMeters =
-            Geolocator.distanceBetween(
-          _currentPosition!.latitude,
-          _currentPosition!.longitude,
-          dest['lat'],
-          dest['lng'],
-        );
-
-        dest['distance'] = distanceInMeters / 1000;
+      for (var dest in _destinations) {
+        if (dest['lat'] != 0.0 && dest['lng'] != 0.0) {
+          double distanceInMeters = Geolocator.distanceBetween(
+            _currentPosition!.latitude,
+            _currentPosition!.longitude,
+            dest['lat'],
+            dest['lng'],
+          );
+          dest['distance'] = distanceInMeters / 1000;
+        }
       }
     });
   }
@@ -329,16 +349,20 @@ class _DestinationPageState extends State<DestinationPage> {
             _searchQuery.toLowerCase(),
           );
 
+      final List<String> destCategories = dest['categories'] as List<String>? ?? [];
       final bool matchesCategory =
           _selectedCategories.isEmpty ||
-              _selectedCategories
-                  .contains(dest['category']);
+              destCategories.any((c) => _selectedCategories.contains(c));
 
       return matchesSearch && matchesCategory;
     }).toList();
 
-    return AnnotatedRegion<SystemUiOverlayStyle>(
-      value: const SystemUiOverlayStyle(
+    return DefaultTabController(
+      key: ValueKey(_initialTabIndex),
+      initialIndex: _initialTabIndex,
+      length: 2,
+      child: AnnotatedRegion<SystemUiOverlayStyle>(
+        value: const SystemUiOverlayStyle(
         // Status bar background
         statusBarColor: Colors.transparent,
 
@@ -350,8 +374,7 @@ class _DestinationPageState extends State<DestinationPage> {
 
         // Bottom navigation area
         systemNavigationBarColor: Colors.white,
-        systemNavigationBarIconBrightness:
-            Brightness.dark,
+        systemNavigationBarIconBrightness: Brightness.dark,
       ),
       child: Scaffold(
         backgroundColor: Colors.white,
@@ -395,8 +418,6 @@ class _DestinationPageState extends State<DestinationPage> {
               fontWeight: FontWeight.w600,
             ),
           ),
-
-          // Title CENTER
           centerTitle: true,
         ),
 
@@ -406,6 +427,29 @@ class _DestinationPageState extends State<DestinationPage> {
 
         body: Column(
           children: [
+            Container(
+              width: double.infinity,
+              color: Colors.white,
+              child: const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 32.0),
+                child: TabBar(
+                  dividerColor: Colors.transparent,
+                  indicatorSize: TabBarIndicatorSize.tab,
+                  labelColor: Color(0xFF7D9240),
+                  unselectedLabelColor: Colors.grey,
+                  indicatorColor: Color(0xFF7D9240),
+                  tabs: [
+                    Tab(text: 'Explore'),
+                    Tab(text: 'History'),
+                  ],
+                ),
+              ),
+            ),
+            Expanded(
+              child: TabBarView(
+                children: [
+                  Column(
+                    children: [
             // ===================================================
             // SEARCH + FILTER
             // ===================================================
@@ -506,10 +550,9 @@ class _DestinationPageState extends State<DestinationPage> {
             // ===================================================
 
             Expanded(
-              child: _isLoadingLocation
+              child: _isLoadingDestinations
                   ? const Center(
-                      child:
-                          CircularProgressIndicator(
+                      child: CircularProgressIndicator(
                         color: Color(0xFF7D9240),
                       ),
                     )
@@ -522,7 +565,17 @@ class _DestinationPageState extends State<DestinationPage> {
                             ),
                           ),
                         )
-                      : ListView.builder(
+                      : RefreshIndicator(
+                          color: const Color(0xFF7D9240),
+                          onRefresh: () async {
+                            setState(() {
+                              _isLoadingDestinations = true;
+                              // location loading doesn't block UI
+                            });
+                            _getCurrentLocation(); // fire and forget
+                            await _loadData();
+                          },
+                          child: ListView.builder(
                           padding:
                               const EdgeInsets
                                   .symmetric(
@@ -536,302 +589,411 @@ class _DestinationPageState extends State<DestinationPage> {
                             final dest =
                                 filteredDestinations[
                                     index];
+                            final destCategories = (dest['categories'] is List)
+                                ? (dest['categories'] as List).cast<String>()
+                                : <String>['Wisata'];
 
-                            return GestureDetector(
-                              onTap: () {
-                                Navigator.pushNamed(
-                                  context,
-                                  '/destination_detail',
-                                  arguments: dest,
-                                );
-                              },
-                              child: Container(
-                                margin:
-                                    const EdgeInsets
-                                        .only(
-                                  bottom: 20,
-                                ),
-                                decoration:
-                                    BoxDecoration(
-                                  color: Colors.white,
-                                  borderRadius:
-                                      BorderRadius
-                                          .circular(20),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: Colors.black
-                                          .withOpacity(
-                                        0.06,
-                                      ),
-                                      blurRadius: 12,
-                                      offset:
-                                          const Offset(
-                                        0,
-                                        4,
-                                      ),
+                            return Container(
+                              margin: const EdgeInsets.only(bottom: 20),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(20),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withValues(
+                                      alpha: 0.06,
                                     ),
-                                  ],
-                                ),
-                                child: Column(
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment
-                                          .start,
-                                  children: [
-                                    // =================================
-                                    // IMAGE
-                                    // =================================
-
-                                    Stack(
+                                    blurRadius: 12,
+                                    offset: const Offset(0, 4),
+                                  ),
+                                ],
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  // =================================
+                                  // CLICKABLE CARD HEADER & DETAILS
+                                  // =================================
+                                  GestureDetector(
+                                    behavior: HitTestBehavior.opaque,
+                                    onTap: () {
+                                      Navigator.pushNamed(
+                                        context,
+                                        '/destination_detail',
+                                        arguments: dest,
+                                      );
+                                    },
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
                                       children: [
-                                        ClipRRect(
-                                          borderRadius:
-                                              const BorderRadius
-                                                  .vertical(
-                                            top: Radius
-                                                .circular(
-                                              20,
+                                        // IMAGE
+                                        Stack(
+                                          children: [
+                                            ClipRRect(
+                                              borderRadius: const BorderRadius.vertical(
+                                                top: Radius.circular(20),
+                                              ),
+                                              child: Container(
+                                                height: 180,
+                                                width: double.infinity,
+                                                decoration: BoxDecoration(
+                                                  color: Colors.grey.shade200,
+                                                  image: dest['image'] != null && dest['image'].toString().startsWith('http')
+                                                      ? DecorationImage(
+                                                          image: NetworkImage(
+                                                            dest['image'],
+                                                            headers: const {
+                                                              'ngrok-skip-browser-warning': 'true',
+                                                            },
+                                                          ),
+                                                          fit: BoxFit.cover,
+                                                        )
+                                                      : const DecorationImage(
+                                                          image: AssetImage('assets/images/other/splashscreen.png'),
+                                                          fit: BoxFit.cover,
+                                                        ),
+                                                ),
+                                              ),
                                             ),
-                                          ),
-                                          child:
-                                              Image.asset(
-                                            dest['image'],
-                                            height: 180,
-                                            width:
-                                                double.infinity,
-                                            fit: BoxFit.cover,
-                                          ),
+                                            Positioned(
+                                              bottom: 12,
+                                              left: 12,
+                                              child: Container(
+                                                padding: const EdgeInsets.symmetric(
+                                                  horizontal: 10,
+                                                  vertical: 6,
+                                                ),
+                                                decoration: BoxDecoration(
+                                                  color: const Color(0xFFE8F0DF),
+                                                  borderRadius: BorderRadius.circular(12),
+                                                ),
+                                                child: Row(
+                                                  children: [
+                                                    const Icon(
+                                                      Icons.accessible,
+                                                      size: 14,
+                                                      color: Color(0xFF5B7D46),
+                                                    ),
+                                                    const SizedBox(width: 4),
+                                                    Text(
+                                                      dest['isHighlyAccessible']
+                                                          ? 'Highly Accessible'
+                                                          : 'Accessible',
+                                                      style: const TextStyle(
+                                                        fontSize: 12,
+                                                        fontWeight: FontWeight.bold,
+                                                        color: Color(0xFF5B7D46),
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                            ),
+                                          ],
                                         ),
 
-                                        Positioned(
-                                          bottom: 12,
-                                          left: 12,
-                                          child:
-                                              Container(
-                                            padding:
-                                                const EdgeInsets
-                                                    .symmetric(
-                                              horizontal:
-                                                  10,
-                                              vertical: 6,
-                                            ),
-                                            decoration:
-                                                BoxDecoration(
-                                              color:
-                                                  const Color(
-                                                0xFFE8F0DF,
-                                              ),
-                                              borderRadius:
-                                                  BorderRadius
-                                                      .circular(
-                                                12,
-                                              ),
-                                            ),
-                                            child: Row(
-                                              children: [
-                                                const Icon(
-                                                  Icons
-                                                      .accessible,
-                                                  size: 14,
-                                                  color:
-                                                      Color(
-                                                    0xFF5B7D46,
-                                                  ),
+                                        // DETAILS (Title, category, distance, icons)
+                                        Padding(
+                                          padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                dest['title'],
+                                                style: const TextStyle(
+                                                  fontWeight: FontWeight.bold,
+                                                  fontSize: 16,
+                                                  color: Color(0xFF1E3A2F),
                                                 ),
-                                                const SizedBox(
-                                                  width: 4,
-                                                ),
-                                                Text(
-                                                  dest[
-                                                          'isHighlyAccessible']
-                                                      ? 'Highly Accessible'
-                                                      : 'Accessible',
-                                                  style:
-                                                      const TextStyle(
-                                                    fontSize:
-                                                        12,
-                                                    fontWeight:
-                                                        FontWeight.bold,
-                                                    color:
-                                                        Color(
-                                                      0xFF5B7D46,
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                              const SizedBox(height: 8),
+                                              Row(
+                                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                                children: [
+                                                  Expanded(
+                                                    child: Text(
+                                                      destCategories.join(', '),
+                                                      style: TextStyle(
+                                                        color: Colors.grey.shade600,
+                                                        fontSize: 13,
+                                                      ),
+                                                      maxLines: 1,
+                                                      overflow: TextOverflow.ellipsis,
                                                     ),
                                                   ),
-                                                ),
-                                              ],
-                                            ),
+                                                  const SizedBox(width: 8),
+                                                ],
+                                              ),
+                                              const SizedBox(height: 14),
+                                              Row(
+                                                children: [
+                                                  _buildAccessIcon(Icons.accessible),
+                                                  const SizedBox(width: 8),
+                                                  _buildAccessIcon(Icons.signal_cellular_4_bar),
+                                                  const SizedBox(width: 8),
+                                                  _buildAccessIcon(Icons.elevator),
+                                                  const SizedBox(width: 8),
+                                                  _buildAccessIcon(Icons.local_parking),
+                                                ],
+                                              ),
+                                            ],
                                           ),
                                         ),
                                       ],
                                     ),
+                                  ),
 
-                                    // =================================
-                                    // DESTINATION DETAILS
-                                    // =================================
+                                  // =================================
+                                  // ADD TO ROUTE BUTTON
+                                  // =================================
+                                  Padding(
+                                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                                    child: SizedBox(
+                                      width: double.infinity,
+                                      child: ElevatedButton.icon(
+                                        onPressed: () {
+                                          final title = dest['title'] ?? dest['name'] ?? 'Destinasi';
+                                          TripRouteManager().addDestination({
+                                            'id': dest['id'],
+                                            'title': title,
+                                            'latitude': dest['lat'] ?? dest['latitude'],
+                                            'longitude': dest['lng'] ?? dest['longitude'],
+                                            'estimated_duration': dest['estimated_duration'] ?? dest['duration'],
+                                            'entrance_fee': dest['entrance_fee'] ?? dest['fee'],
+                                            'image_url': dest['image_url'] ?? dest['image'],
+                                          });
 
-                                    Padding(
-                                      padding:
-                                          const EdgeInsets
-                                              .all(
-                                        16,
+                                          AppDialogs.showStatusDialog(
+                                            context: context,
+                                            isSuccess: true,
+                                            title: 'Added to Route',
+                                            message: '$title has been added to your route.',
+                                            buttonText: 'View Route',
+                                            onPressed: () {
+                                              Navigator.pop(context);
+                                              Navigator.pushNamed(context, '/route_recommendation');
+                                            },
+                                          );
+                                        },
+                                        icon: const Icon(Icons.add_road, size: 18),
+                                        label: const Text(
+                                          'Add to Route',
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: const Color(0xFF7D9240),
+                                          foregroundColor: Colors.white,
+                                          padding: const EdgeInsets.symmetric(vertical: 12),
+                                          shape: RoundedRectangleBorder(
+                                            borderRadius: BorderRadius.circular(12),
+                                          ),
+                                          elevation: 0,
+                                        ),
                                       ),
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment
-                                                .start,
-                                        children: [
-                                          Text(
-                                            dest['title'],
-                                            style:
-                                                const TextStyle(
-                                              fontWeight:
-                                                  FontWeight
-                                                      .bold,
-                                              fontSize: 16,
-                                              color:
-                                                  Color(
-                                                0xFF1E3A2F,
-                                              ),
-                                            ),
-                                            maxLines: 1,
-                                            overflow:
-                                                TextOverflow
-                                                    .ellipsis,
-                                          ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                         ),
+                      ),
+            ),
+                    ],
+                  ),
+                  _buildHistoryTab(),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+    );
+  }
 
-                                          const SizedBox(
-                                            height: 12,
-                                          ),
+  Widget _buildHistoryTab() {
+    if (_isLoadingHistory) {
+      return const Center(
+        child: CircularProgressIndicator(color: Color(0xFF7D9240)),
+      );
+    }
 
-                                          Row(
-                                            children: [
-                                              const Icon(
-                                                Icons
-                                                    .location_on,
-                                                size: 16,
-                                                color:
-                                                    Color(
-                                                  0xFF5B7D46,
-                                                ),
-                                              ),
-                                              const SizedBox(
-                                                width: 4,
-                                              ),
-                                              Text(
-                                                dest['distance'] !=
-                                                        null
-                                                    ? '${dest['distance'].toStringAsFixed(1)} km'
-                                                    : '-',
-                                                style:
-                                                    const TextStyle(
-                                                  fontSize:
-                                                      14,
-                                                  color:
-                                                      Colors.black54,
-                                                  fontWeight:
-                                                      FontWeight
-                                                          .w500,
-                                                ),
-                                              ),
-                                            ],
-                                          ),
+    if (_historyDestinations.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32.0),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: const BoxDecoration(
+                  color: Color(0xFFF2F5EA),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.history, size: 48, color: Color(0xFF7D9240)),
+              ),
+              const SizedBox(height: 18),
+              const Text(
+                'Belum Ada Riwayat Destinasi',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF1E3A2F),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Selesaikan rute perjalanan (tekan tombol Finish Trip pada halaman rute) untuk mencatat destinasi yang telah Anda kunjungi.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 13,
+                  color: Colors.grey.shade600,
+                  height: 1.5,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
 
-                                          const SizedBox(
-                                            height: 16,
-                                          ),
+    return RefreshIndicator(
+      color: const Color(0xFF7D9240),
+      onRefresh: _loadHistory,
+      child: ListView.builder(
+        padding: const EdgeInsets.all(16),
+        itemCount: _historyDestinations.length,
+        itemBuilder: (context, index) {
+          final dest = _historyDestinations[index];
+          final imgUrl = dest['image_url'] ?? dest['image'];
+          final formattedImg = (imgUrl != null && imgUrl.toString().trim().isNotEmpty)
+              ? (imgUrl.toString().startsWith('http')
+                  ? imgUrl.toString()
+                  : '${ApiConstants.baseUrl}${imgUrl.toString().startsWith('/') ? '' : '/'}$imgUrl')
+              : null;
 
-                                          Row(
-                                            children: [
-                                              _buildAccessIcon(
-                                                Icons
-                                                    .accessible,
-                                              ),
-                                              const SizedBox(
-                                                width: 8,
-                                              ),
-                                              _buildAccessIcon(
-                                                Icons
-                                                    .signal_cellular_4_bar,
-                                              ),
-                                              const SizedBox(
-                                                width: 8,
-                                              ),
-                                              _buildAccessIcon(
-                                                Icons
-                                                    .elevator,
-                                              ),
-                                              const SizedBox(
-                                                width: 8,
-                                              ),
-                                              _buildAccessIcon(
-                                                Icons
-                                                    .local_parking,
-                                              ),
-                                            ],
-                                          ),
-
-                                          const SizedBox(
-                                            height: 20,
-                                          ),
-
-                                          SizedBox(
-                                            width:
-                                                double.infinity,
-                                            child:
-                                                ElevatedButton(
-                                              onPressed: () {
-                                                // Add to route logic
-                                              },
-                                              style:
-                                                  ElevatedButton
-                                                      .styleFrom(
-                                                backgroundColor:
-                                                    const Color(
-                                                  0xFF7D9240,
-                                                ),
-                                                foregroundColor:
-                                                    Colors
-                                                        .white,
-                                                padding:
-                                                    const EdgeInsets
-                                                        .symmetric(
-                                                  vertical:
-                                                      12,
-                                                ),
-                                                shape:
-                                                    RoundedRectangleBorder(
-                                                  borderRadius:
-                                                      BorderRadius
-                                                          .circular(
-                                                    12,
-                                                  ),
-                                                ),
-                                                elevation:
-                                                    0,
-                                              ),
-                                              child:
-                                                  const Text(
-                                                'Add to Route',
-                                                style:
-                                                    TextStyle(
-                                                  fontWeight:
-                                                      FontWeight
-                                                          .bold,
-                                                ),
-                                              ),
-                                            ),
-                                          ),
-                                        ],
+          return Container(
+            margin: const EdgeInsets.only(bottom: 14),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: const Color(0xFFE8F0DF)),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.04),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(16),
+              onTap: () {
+                Navigator.pushNamed(
+                  context,
+                  '/destination_detail',
+                  arguments: dest,
+                );
+              },
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: formattedImg != null
+                          ? Image.network(
+                              formattedImg,
+                              headers: const {'ngrok-skip-browser-warning': 'true'},
+                              width: 85,
+                              height: 85,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) => Container(
+                                width: 85,
+                                height: 85,
+                                color: Colors.grey.shade200,
+                                child: const Icon(Icons.broken_image, color: Colors.grey),
+                              ),
+                            )
+                          : Image.asset(
+                              'assets/images/other/splashscreen.png',
+                              width: 85,
+                              height: 85,
+                              fit: BoxFit.cover,
+                            ),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFE8F0DF),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: const Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.check_circle, size: 12, color: Color(0xFF5B7D46)),
+                                    SizedBox(width: 4),
+                                    Text(
+                                      'Completed',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.bold,
+                                        color: Color(0xFF5B7D46),
                                       ),
                                     ),
                                   ],
                                 ),
                               ),
-                            );
-                          },
-                        ),
+                              if (dest['visited_at'] != null)
+                                Text(
+                                  dest['visited_at'].toString().split('•').first.trim(),
+                                  style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+                                ),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            dest['title'] ?? dest['name'] ?? 'Destinasi',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFF1E3A2F),
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            dest['category'] ?? 'Wisata Inklusif',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey.shade600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
-          ],
-        ),
+          );
+        },
       ),
     );
   }

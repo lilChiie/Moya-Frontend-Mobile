@@ -1,6 +1,9 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import '../../core/services/destination_service.dart';
+import '../../core/services/report_service.dart';
+import '../../core/utils/dialog_utils.dart';
 
 class ReportConditionPage extends StatefulWidget {
   const ReportConditionPage({super.key});
@@ -16,53 +19,155 @@ class _ReportConditionPageState extends State<ReportConditionPage> {
   File? _imageFile;
   final ImagePicker _picker = ImagePicker();
   
-  final List<String> _destinations = [
-    'Museum Batam',
-    'Jembatan Barelang',
-    'Pantai Nongsa',
-    'Nagoya Hill',
-    'Ocarina Park',
-    'Masjid Cheng Ho',
-    'Kebun Raya Batam',
-  ];
+  List<Map<String, dynamic>> _destinations = [];
+  bool _isLoadingDestinations = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadDestinations();
+  }
+
+  Future<void> _loadDestinations() async {
+    final destinationService = DestinationService();
+    try {
+      final response = await destinationService.getDestinations();
+      if (response['success'] == true) {
+        final List<dynamic> data = response['data'] ?? [];
+        if (mounted) {
+          setState(() {
+            _destinations = data.map((e) => e as Map<String, dynamic>).toList();
+            _isLoadingDestinations = false;
+          });
+        }
+      } else {
+        if (mounted) {
+          setState(() {
+            _isLoadingDestinations = false;
+          });
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoadingDestinations = false;
+        });
+        AppDialogs.showStatusDialog(
+          context: context,
+          isSuccess: false,
+          title: 'Error',
+          message: 'Failed to load destinations',
+          buttonText: 'OK',
+          onPressed: () => Navigator.pop(context),
+        );
+      }
+    }
+  }
 
   Future<void> _pickImage(ImageSource source) async {
     try {
-      final XFile? pickedFile = await _picker.pickImage(source: source);
+      final XFile? pickedFile = await _picker.pickImage(
+        source: source,
+        imageQuality: 60, // Compress image to avoid 'Read failed' on large files
+        maxWidth: 1024,
+        maxHeight: 1024,
+      );
       if (pickedFile != null) {
         setState(() {
           _imageFile = File(pickedFile.path);
         });
       }
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error picking image: $e')),
       );
     }
   }
 
-  void _submitReport() {
-    if (_destinationController.text.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select a destination')),
+  Future<void> _submitReport() async {
+    final selectedDestName = _destinationController.text;
+    final selectedDest = _destinations.cast<Map<String, dynamic>?>().firstWhere(
+      (dest) => dest?['name'] == selectedDestName,
+      orElse: () => null,
+    );
+
+    if (selectedDest == null) {
+      AppDialogs.showStatusDialog(
+        context: context,
+        isSuccess: false,
+        title: 'Error',
+        message: 'Please select a valid destination',
+        buttonText: 'OK',
+        onPressed: () => Navigator.pop(context),
       );
       return;
     }
-    if (_notesController.text.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please add some notes')),
+    
+    if (_imageFile == null) {
+      AppDialogs.showStatusDialog(
+        context: context,
+        isSuccess: false,
+        title: 'Error',
+        message: 'Please upload an evidence image',
+        buttonText: 'OK',
+        onPressed: () => Navigator.pop(context),
       );
       return;
     }
 
-    // Mock API call or successful submission
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Report submitted successfully! Thank you.'),
-        backgroundColor: Color(0xFF5B7D46),
+    if (_notesController.text.isEmpty) {
+      AppDialogs.showStatusDialog(
+        context: context,
+        isSuccess: false,
+        title: 'Error',
+        message: 'Please add some notes',
+        buttonText: 'OK',
+        onPressed: () => Navigator.pop(context),
+      );
+      return;
+    }
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => const Center(
+        child: CircularProgressIndicator(color: Color(0xFF7D9240)),
       ),
     );
-    Navigator.pop(context);
+    
+    final reportService = ReportService();
+    final result = await reportService.submitReport(
+      destinationId: selectedDest['id'],
+      userNotes: _notesController.text,
+      image: _imageFile!,
+    );
+    
+    if (!mounted) return;
+    Navigator.pop(context); // close loading dialog
+    
+    if (result['success']) {
+      AppDialogs.showStatusDialog(
+        context: context,
+        isSuccess: true,
+        title: 'Success',
+        message: result['message'] ?? 'Report submitted successfully',
+        buttonText: 'OK',
+        onPressed: () {
+          Navigator.pop(context); // close dialog
+          Navigator.pop(context); // exit page
+        },
+      );
+    } else {
+      AppDialogs.showStatusDialog(
+        context: context,
+        isSuccess: false,
+        title: 'Error',
+        message: result['message'] ?? 'Failed to submit report',
+        buttonText: 'OK',
+        onPressed: () => Navigator.pop(context),
+      );
+    }
   }
 
   @override
@@ -214,10 +319,10 @@ class _ReportConditionPageState extends State<ReportConditionPage> {
                       borderSide: const BorderSide(color: Color(0xFF7D9240), width: 2),
                     ),
                   ),
-                  dropdownMenuEntries: _destinations.map((String dest) {
+                  dropdownMenuEntries: _destinations.map((dest) {
                     return DropdownMenuEntry<String>(
-                      value: dest,
-                      label: dest,
+                      value: dest['name'],
+                      label: dest['name'],
                     );
                   }).toList(),
                 );

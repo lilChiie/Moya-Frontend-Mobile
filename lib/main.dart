@@ -12,7 +12,7 @@ class MoyaApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Moya',
+      title: 'MOYA',
       theme: AppTheme.lightTheme,
       initialRoute: AppRoutes.splash,
       routes: AppRoutes.getRoutes(),

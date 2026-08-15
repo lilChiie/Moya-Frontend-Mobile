@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../app/routes.dart';
+import '../../core/services/auth_service.dart';
+import '../../core/utils/dialog_utils.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -9,7 +11,70 @@ class LoginPage extends StatefulWidget {
 }
 
 class _LoginPageState extends State<LoginPage> {
+  final TextEditingController _emailController = TextEditingController();
+  final TextEditingController _passwordController = TextEditingController();
+  final AuthService _authService = AuthService();
+  
   bool _obscureText = true;
+  bool _isLoading = false;
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _handleLogin() async {
+    if (_emailController.text.isEmpty || _passwordController.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please fill in both email and password.')),
+      );
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    final result = await _authService.login(
+      _emailController.text.trim(),
+      _passwordController.text,
+    );
+
+    if (mounted) {
+      setState(() {
+        _isLoading = false;
+      });
+
+      if (result['success']) {
+        AppDialogs.showStatusDialog(
+          context: context,
+          isSuccess: true,
+          title: 'Success',
+          message: result['message'],
+          buttonText: 'Continue',
+          onPressed: () {
+            Navigator.pop(context); // Close dialog
+            Navigator.pushNamedAndRemoveUntil(
+              context,
+              AppRoutes.mainNav,
+              (route) => false,
+            );
+          },
+        );
+      } else {
+        AppDialogs.showStatusDialog(
+          context: context,
+          isSuccess: false,
+          title: 'Login Failed',
+          message: result['message'],
+          buttonText: 'Try Again',
+          onPressed: () => Navigator.pop(context),
+        );
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -119,6 +184,7 @@ class _LoginPageState extends State<LoginPage> {
                         ),
                         const SizedBox(height: 8),
                         TextField(
+                          controller: _emailController,
                           decoration: InputDecoration(
                             hintText: 'Enter your email',
                             hintStyle: const TextStyle(color: Color(0xFFA0AAB2), fontSize: 14),
@@ -149,6 +215,7 @@ class _LoginPageState extends State<LoginPage> {
                         ),
                         const SizedBox(height: 8),
                         TextField(
+                          controller: _passwordController,
                           obscureText: _obscureText,
                           decoration: InputDecoration(
                             hintText: 'Enter your password',
@@ -184,9 +251,7 @@ class _LoginPageState extends State<LoginPage> {
                           width: double.infinity,
                           height: 56,
                           child: ElevatedButton(
-                            onPressed: () {
-                              Navigator.pushReplacementNamed(context, AppRoutes.mainNav);
-                            },
+                            onPressed: _isLoading ? null : _handleLogin,
                             style: ElevatedButton.styleFrom(
                               backgroundColor: const Color(0xFF5B7D46), // Moya Green
                               shape: RoundedRectangleBorder(
@@ -194,14 +259,23 @@ class _LoginPageState extends State<LoginPage> {
                               ),
                               elevation: 0,
                             ),
-                            child: const Text(
-                              'Login',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
+                            child: _isLoading 
+                                ? const SizedBox(
+                                    height: 24,
+                                    width: 24,
+                                    child: CircularProgressIndicator(
+                                      color: Colors.white,
+                                      strokeWidth: 3,
+                                    ),
+                                  )
+                                : const Text(
+                                    'Login',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
                           ),
                         ),
                         const SizedBox(height: 24),

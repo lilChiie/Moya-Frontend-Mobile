@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
 import '../../app/routes.dart';
+import '../../core/services/auth_service.dart';
 
 class SplashPage extends StatefulWidget {
   const SplashPage({super.key});
@@ -20,11 +21,22 @@ class _SplashPageState extends State<SplashPage> with SingleTickerProviderStateM
       vsync: this,
     )..repeat();
 
-    Future.delayed(const Duration(seconds: 3), () {
-      if (mounted) {
-        Navigator.pushReplacementNamed(context, AppRoutes.onboarding);
-      }
-    });
+    _checkAuthAndNavigate();
+  }
+
+  Future<void> _checkAuthAndNavigate() async {
+    await Future.delayed(const Duration(seconds: 2));
+    if (!mounted) return;
+    
+    final authService = AuthService();
+    final loggedIn = await authService.isLoggedIn();
+
+    if (!mounted) return;
+    if (loggedIn) {
+      Navigator.pushReplacementNamed(context, AppRoutes.mainNav);
+    } else {
+      Navigator.pushReplacementNamed(context, AppRoutes.onboarding);
+    }
   }
 
   @override

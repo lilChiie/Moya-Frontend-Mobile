@@ -1,4 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
+import '../../core/services/tourism_service.dart';
+import '../../core/services/accessibility_service.dart';
+import '../../core/services/route_service.dart';
+import '../../core/utils/dialog_utils.dart';
 
 class RouteRecommendationFormPage extends StatefulWidget {
   const RouteRecommendationFormPage({super.key});
@@ -8,19 +13,144 @@ class RouteRecommendationFormPage extends StatefulWidget {
 }
 
 class _RouteRecommendationFormPageState extends State<RouteRecommendationFormPage> {
-  // 1. Accessibility Needs (Dropdown)
-  String _selectedAccessibility = 'None';
-  final List<String> _accessibilityOptions = ['Wheelchair', 'Visual Impairment', 'Hearing Impairment', 'None'];
+  final RouteService _routeService = RouteService();
+
+  // 1. Accessibility Needs / Available Facilities (Multiple Choice)
+  Set<String> _selectedFacilities = {};
+  List<String> _accessibilityOptions = [];
+  List<Map<String, dynamic>> _rawAccessibility = [];
 
   // 2. Tourism Category (Multiple Choice)
-  final Set<String> _selectedCategories = {'Nature'};
-  final List<String> _categoryOptions = ['Nature', 'Culinary', 'Culture', 'Shopping', 'Adventure'];
+  Set<String> _selectedCategories = {};
+  List<String> _categoryOptions = [];
+  List<Map<String, dynamic>> _rawCategories = [];
+
+  bool _isLoadingData = true;
+  bool _isSubmitting = false;
 
   // 3. Budget (Range Slider) - e.g., IDR 100k to 5M
   RangeValues _budgetRange = const RangeValues(200000, 1000000);
 
   // 4. Trip Duration (Hours Slider)
   double _durationHours = 4.0;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchData();
+  }
+
+  Future<void> _fetchData() async {
+    final tourismService = TourismService();
+    final accessibilityService = AccessibilityService();
+
+    final results = await Future.wait([
+      tourismService.getTourismCategories(),
+      accessibilityService.getAccessibilityNeeds(),
+    ]);
+
+    final tourismResult = results[0];
+    final accessResult = results[1];
+
+    if (mounted) {
+      setState(() {
+        if (tourismResult['success'] && tourismResult['data'] != null) {
+          final List<dynamic> data = tourismResult['data'];
+          _rawCategories = data.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+          _categoryOptions = _rawCategories.map((e) => (e['name'] ?? e['title'] ?? '').toString()).where((s) => s.isNotEmpty).toList();
+        }
+
+        if (accessResult['success'] && accessResult['data'] != null) {
+          final List<dynamic> data = accessResult['data'];
+          _rawAccessibility = data.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+          _accessibilityOptions = _rawAccessibility.map((e) => (e['name'] ?? e['title'] ?? '').toString()).where((s) => s.isNotEmpty).toList();
+        }
+
+        // Setup initial values
+        if (_categoryOptions.isNotEmpty) {
+          _selectedCategories = {_categoryOptions.first};
+        }
+        if (_accessibilityOptions.isNotEmpty) {
+          _selectedFacilities = {_accessibilityOptions.first};
+        }
+
+        _isLoadingData = false;
+      });
+    }
+  }
+
+  int _getTourismId(String categoryName) {
+    final found = _rawCategories.firstWhere(
+      (c) => (c['name'] ?? '').toString().toLowerCase() == categoryName.toLowerCase(),
+      orElse: () => {},
+    );
+    return found['id'] as int? ?? 3;
+  }
+
+  int _getAccessibilityId(String accessName) {
+    if (accessName.toLowerCase() == 'none') return 3;
+    final found = _rawAccessibility.firstWhere(
+      (a) => (a['name'] ?? '').toString().toLowerCase() == accessName.toLowerCase(),
+      orElse: () => {},
+    );
+    return found['id'] as int? ?? 3;
+  }
+
+  Future<void> _generateRoute() async {
+    setState(() => _isSubmitting = true);
+
+    Position? position;
+    try {
+      position = await Geolocator.getLastKnownPosition();
+    } catch (_) {}
+
+    final selectedCat = _selectedCategories.isNotEmpty ? _selectedCategories.first : 'Culinary Tourism';
+    final tourismId = _getTourismId(selectedCat);
+    
+    List<int> accessibilityIds = [];
+    for (var facilityName in _selectedFacilities) {
+      final id = _getAccessibilityId(facilityName);
+      if (!accessibilityIds.contains(id)) {
+        accessibilityIds.add(id);
+      }
+    }
+    if (accessibilityIds.isEmpty) {
+      accessibilityIds = [3];
+    }
+
+    final result = await _routeService.getRouteRecommendation(
+      accessibilityIds: accessibilityIds,
+      tourismId: tourismId,
+      budget: _budgetRange.end,
+      durationMinutes: (_durationHours * 60).toInt(),
+      maxDistanceKm: 50.0,
+      latitude: position?.latitude ?? 1.136,
+      longitude: position?.longitude ?? 104.029,
+    );
+
+    setState(() => _isSubmitting = false);
+
+    if (!mounted) return;
+
+    if (result['success'] == true) {
+      Navigator.pushNamed(
+        context,
+        '/route_recommendation',
+        arguments: result['data'],
+      );
+    } else {
+      AppDialogs.showStatusDialog(
+        context: context,
+        isSuccess: false,
+        title: 'Failed to create route',
+        message: result['message'] ?? 'Failed to load route recommendations from server.',
+        buttonText: 'OK',
+        onPressed: () {
+          Navigator.pop(context);
+        },
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -66,48 +196,61 @@ class _RouteRecommendationFormPageState extends State<RouteRecommendationFormPag
                     ),
                   ),
                   const SizedBox(height: 32),
-                  
-                  // 1. Accessibility Needs (Dropdown)
-                  _buildSectionTitle('Accessibility Needs'),
-                  DropdownButtonFormField<String>(
-                    value: _selectedAccessibility,
-                    decoration: InputDecoration(
-                      filled: true,
-                      fillColor: Colors.white,
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(color: Colors.grey.shade300),
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(color: Colors.grey.shade300),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: const BorderSide(color: Color(0xFF7D9240), width: 2),
-                      ),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                    ),
-                    items: _accessibilityOptions.map((String option) {
-                      return DropdownMenuItem<String>(
-                        value: option,
-                        child: Text(option),
-                      );
-                    }).toList(),
-                    onChanged: (String? newValue) {
-                      if (newValue != null) {
-                        setState(() {
-                          _selectedAccessibility = newValue;
-                        });
-                      }
-                    },
+
+                  // 1. Available Facilities (Multiple Choice)
+                  _buildSectionTitle(
+                    'Available Facilities',
+                    subtitle: 'Select accessibility facilities you need',
                   ),
+                  if (_isLoadingData)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 20),
+                      child: Center(child: CircularProgressIndicator(color: Color(0xFF7D9240))),
+                    )
+                  else
+                    Wrap(
+                      spacing: 8.0,
+                      runSpacing: 8.0,
+                      children: _accessibilityOptions.map((option) {
+                        final isSelected = _selectedFacilities.contains(option);
+                        return FilterChip(
+                          label: Text(
+                            option,
+                            style: TextStyle(
+                              color: isSelected ? Colors.white : Colors.grey.shade700,
+                              fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                            ),
+                          ),
+                          selected: isSelected,
+                          onSelected: (selected) {
+                            setState(() {
+                              if (selected) {
+                                _selectedFacilities.add(option);
+                              } else {
+                                if (_selectedFacilities.length > 1) {
+                                  _selectedFacilities.remove(option);
+                                }
+                              }
+                            });
+                          },
+                          selectedColor: const Color(0xFF7D9240),
+                          backgroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            side: BorderSide(
+                              color: isSelected ? const Color(0xFF7D9240) : Colors.grey.shade300,
+                            ),
+                          ),
+                          showCheckmark: false,
+                        );
+                      }).toList(),
+                    ),
                   const SizedBox(height: 24),
 
                   // 2. Tourism Category (Multiple Choice)
                   _buildSectionTitle(
                     'Tourism Category',
-                    subtitle: 'You can select more than one category',
+                    subtitle: 'Select categories you are interested in',
                   ),
                   Wrap(
                     spacing: 8.0,
@@ -216,7 +359,7 @@ class _RouteRecommendationFormPageState extends State<RouteRecommendationFormPag
               ),
             ),
           ),
-          
+
           // Submit Button Section
           Container(
             padding: const EdgeInsets.all(24),
@@ -224,7 +367,7 @@ class _RouteRecommendationFormPageState extends State<RouteRecommendationFormPag
               color: Colors.white,
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.05),
+                  color: Colors.black.withValues(alpha: 0.05),
                   blurRadius: 10,
                   offset: const Offset(0, -5),
                 ),
@@ -232,10 +375,7 @@ class _RouteRecommendationFormPageState extends State<RouteRecommendationFormPag
             ),
             child: SafeArea(
               child: ElevatedButton(
-                onPressed: () {
-                  // Navigate to Map/Itinerary Page
-                  Navigator.pushNamed(context, '/route_recommendation');
-                },
+                onPressed: _isSubmitting ? null : _generateRoute,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFF5B7D46),
                   foregroundColor: Colors.white,
@@ -245,13 +385,22 @@ class _RouteRecommendationFormPageState extends State<RouteRecommendationFormPag
                   ),
                   elevation: 0,
                 ),
-                child: const Text(
-                  'Generate Route',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
+                child: _isSubmitting
+                    ? const SizedBox(
+                        height: 24,
+                        width: 24,
+                        child: CircularProgressIndicator(
+                          color: Colors.white,
+                          strokeWidth: 2.5,
+                        ),
+                      )
+                    : const Text(
+                        'Generate Route',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
               ),
             ),
           ),

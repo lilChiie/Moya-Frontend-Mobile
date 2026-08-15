@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
 import '../../app/routes.dart';
+import '../../core/services/destination_service.dart';
+import '../../core/services/tourism_service.dart';
+import '../profile/profile_page.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -11,133 +16,288 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   Position? _currentPosition;
-  bool _isLoadingLocation = true;
+  bool _isLoadingDestinations = true;
+  bool _isLoadingCategories = true;
 
-  final List<Map<String, dynamic>> _destinations = [
-    {
-      'title': 'Botanical Garden',
-      'city': 'Bogor',
-      'image': 'assets/images/other/splashscreen.png',
-      'lat': -6.5976,
-      'lng': 106.7996,
-      'distance': null,
-      'rating': 4.8,
-      'isHighlyAccessible': true,
-    },
-    {
-      'title': 'Ancol Beach',
-      'city': 'Jakarta',
-      'image': 'assets/images/other/splashscreen.png',
-      'lat': -6.1265,
-      'lng': 106.8326,
-      'distance': null,
-      'rating': 4.5,
-      'isHighlyAccessible': false,
-    },
-    {
-      'title': 'Taman Wisata Candi',
-      'city': 'Candi Borobudur',
-      'image': 'assets/images/other/splashscreen.png',
-      'lat': -7.6079,
-      'lng': 110.2038,
-      'distance': null,
-      'isHighlyAccessible': true,
-    },
-  ];
+  String _userName = 'New User';
 
-  final List<Map<String, dynamic>> _categories = [
-    {'title': 'Nature', 'icon': Icons.park},
-    {'title': 'Culture', 'icon': Icons.theater_comedy},
-    {'title': 'Shopping', 'icon': Icons.shopping_bag},
-    {'title': 'Recreation', 'icon': Icons.attractions},
-    {'title': 'Religious', 'icon': Icons.mosque},
-    {'title': 'Accommodation', 'icon': Icons.hotel},
-  ];
+  List<Map<String, dynamic>> _destinations = [];
+  List<Map<String, dynamic>> _categories = [];
+
+  // ============================================================
+  // CATEGORY ICON
+  // ============================================================
+
+  IconData _getIconForCategory(String title) {
+    title = title.toLowerCase();
+
+    if (title.contains('nature') ||
+        title.contains('gunung') ||
+        title.contains('pantai')) {
+      return Icons.park;
+    }
+
+    if (title.contains('culture') || title.contains('history')) {
+      return Icons.theater_comedy;
+    }
+
+    if (title.contains('shop') || title.contains('mall')) {
+      return Icons.shopping_bag;
+    }
+
+    if (title.contains('food') ||
+        title.contains('culinary') ||
+        title.contains('restaurant')) {
+      return Icons.restaurant;
+    }
+
+    if (title.contains('hotel') ||
+        title.contains('villa') ||
+        title.contains('resort')) {
+      return Icons.hotel;
+    }
+
+    if (title.contains('religion') || title.contains('mosque')) {
+      return Icons.mosque;
+    }
+
+    return Icons.attractions;
+  }
+
+  // ============================================================
+  // INIT
+  // ============================================================
 
   @override
   void initState() {
     super.initState();
+
+    _loadUserData();
+    _fetchDestinations();
+    _fetchCategories();
     _checkLocationPermission();
   }
+
+  // ============================================================
+  // USER DATA
+  // ============================================================
+
+  Future<void> _loadUserData() async {
+    final prefs = await SharedPreferences.getInstance();
+
+    if (mounted) {
+      setState(() {
+        _userName = prefs.getString('user_name') ?? 'New User';
+      });
+    }
+  }
+
+  // ============================================================
+  // FETCH CATEGORIES
+  // ============================================================
+
+  Future<void> _fetchCategories() async {
+    final tourismService = TourismService();
+    final result = await tourismService.getTourismCategories();
+
+    if (mounted) {
+      setState(() {
+        if (result['success'] && result['data'] != null) {
+          final List<dynamic> data = result['data'];
+
+          _categories = data.map((e) {
+            final String title = e['name'] ?? e['title'] ?? 'Unknown';
+
+            return {
+              'id': e['id'],
+              'title': title,
+              'icon': _getIconForCategory(title),
+            };
+          }).toList();
+        }
+
+        _isLoadingCategories = false;
+      });
+    }
+  }
+
+  // ============================================================
+  // FETCH DESTINATIONS
+  // ============================================================
+
+  Future<void> _fetchDestinations() async {
+    final destinationService = DestinationService();
+    final result = await destinationService.getDestinations();
+
+    if (mounted) {
+      setState(() {
+        if (result['success'] && result['data'] != null) {
+          final List<dynamic> data = List.from(result['data']);
+          
+          // Sort by ID descending to get the "latest" recommendations
+          data.sort((a, b) => (b['id'] as int).compareTo(a['id'] as int));
+
+          _destinations = data.map((e) {
+            final double lat =
+                double.tryParse(e['latitude'].toString()) ?? 0.0;
+
+            final double lng =
+                double.tryParse(e['longitude'].toString()) ?? 0.0;
+
+            return {
+              'id': e['id'],
+              'title': e['name'] ?? 'Unknown',
+              'city': 'Indonesia',
+              'image': e['image_url'] != null
+                  ? e['image_url']
+                      .toString()
+                      .replaceFirst('http://', 'https://')
+                  : null,
+              'lat': lat,
+              'lng': lng,
+              'distance': null,
+              'rating': 4.5,
+              'isHighlyAccessible': true,
+              'description': e['description'],
+              'entrance_fee': e['entrance_fee'],
+              'estimated_duration': e['estimated_duration'],
+              'opening_time': e['opening_time'],
+              'closing_time': e['closing_time'],
+              'accessibility_id': e['accessibility_id'],
+            };
+          }).toList();
+        }
+
+        _isLoadingDestinations = false;
+      });
+
+      _calculateDistances();
+    }
+  }
+
+  // ============================================================
+  // LOCATION PERMISSION
+  // ============================================================
 
   Future<void> _checkLocationPermission() async {
     bool serviceEnabled;
     LocationPermission permission;
 
     serviceEnabled = await Geolocator.isLocationServiceEnabled();
+
     if (!serviceEnabled) {
-      setState(() { _isLoadingLocation = false; });
       return;
     }
 
     permission = await Geolocator.checkPermission();
+
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
+
       if (permission == LocationPermission.denied) {
-        setState(() { _isLoadingLocation = false; });
         return;
       }
     }
-    
+
     if (permission == LocationPermission.deniedForever) {
-      setState(() { _isLoadingLocation = false; });
       return;
     }
 
     _getCurrentLocation();
   }
 
+  // ============================================================
+  // GET CURRENT LOCATION
+  // ============================================================
+
   Future<void> _getCurrentLocation() async {
     try {
-      Position position = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
+      final Position position = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.low,
+        ),
       );
+
       if (mounted) {
         setState(() {
           _currentPosition = position;
-          _isLoadingLocation = false;
         });
+
         _calculateDistances();
       }
     } catch (e) {
-      if (mounted) {
-        setState(() { _isLoadingLocation = false; });
-      }
+      // Ignore location fetch errors
     }
   }
 
+  // ============================================================
+  // CALCULATE DISTANCES
+  // ============================================================
+
   void _calculateDistances() {
     if (_currentPosition == null) return;
-    
+
     setState(() {
       for (var dest in _destinations) {
-        double distanceInMeters = Geolocator.distanceBetween(
-          _currentPosition!.latitude,
-          _currentPosition!.longitude,
-          dest['lat'],
-          dest['lng'],
-        );
-        dest['distance'] = distanceInMeters / 1000; // Convert to km
+        if (dest['lat'] != 0.0 && dest['lng'] != 0.0) {
+          final double distanceInMeters = Geolocator.distanceBetween(
+            _currentPosition!.latitude,
+            _currentPosition!.longitude,
+            dest['lat'],
+            dest['lng'],
+          );
+
+          dest['distance'] = distanceInMeters / 1000;
+        }
       }
     });
   }
+
+  // ============================================================
+  // BUILD
+  // ============================================================
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
-      body: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // 1. Hero Section
+
+      body: RefreshIndicator(
+        color: const Color(0xFF7D9240),
+        onRefresh: () async {
+          setState(() {
+            _isLoadingDestinations = true;
+            _isLoadingCategories = true;
+            // location loading doesn't block UI
+          });
+          _checkLocationPermission(); // fire and forget
+          await Future.wait([
+            _loadUserData(),
+            _fetchDestinations(),
+            _fetchCategories(),
+          ]);
+        },
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+
+            // ====================================================
+            // 1. HERO SECTION
+            // ====================================================
+
             Container(
               width: double.infinity,
               height: 220,
               decoration: const BoxDecoration(
-                borderRadius: BorderRadius.vertical(bottom: Radius.circular(36)),
+                borderRadius: BorderRadius.vertical(
+                  bottom: Radius.circular(36),
+                ),
                 image: DecorationImage(
-                  image: AssetImage('assets/images/other/hero_image.png'),
+                  image: AssetImage(
+                    'assets/images/other/hero_image.png',
+                  ),
                   fit: BoxFit.cover,
                   alignment: Alignment.bottomCenter,
                 ),
@@ -145,28 +305,47 @@ class _HomePageState extends State<HomePage> {
               child: SafeArea(
                 bottom: false,
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 24,
+                    vertical: 16,
+                  ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Top bar (Menu, Notification, Avatar)
+
+                      // TOP BAR
                       Row(
                         mainAxisAlignment: MainAxisAlignment.end,
                         children: [
                           Row(
                             children: [
+
+                              // NOTIFICATION
                               GestureDetector(
-                                onTap: () => Navigator.pushNamed(context, '/notification'),
+                                onTap: () {
+                                  Navigator.pushNamed(
+                                    context,
+                                    '/notification',
+                                  );
+                                },
                                 child: Stack(
                                   children: [
+
                                     Container(
-                                      padding: const EdgeInsets.all(8),
-                                      decoration: const BoxDecoration(
+                                      padding:
+                                          const EdgeInsets.all(8),
+                                      decoration:
+                                          const BoxDecoration(
                                         color: Colors.white,
                                         shape: BoxShape.circle,
                                       ),
-                                      child: const Icon(Icons.notifications_none, size: 24, color: Colors.black87),
+                                      child: const Icon(
+                                        Icons.notifications_none,
+                                        size: 24,
+                                        color: Colors.black87,
+                                      ),
                                     ),
+
                                     Positioned(
                                       right: 8,
                                       top: 8,
@@ -176,32 +355,55 @@ class _HomePageState extends State<HomePage> {
                                         decoration: BoxDecoration(
                                           color: Colors.red,
                                           shape: BoxShape.circle,
-                                          border: Border.all(color: Colors.white, width: 1.5),
+                                          border: Border.all(
+                                            color: Colors.white,
+                                            width: 1.5,
+                                          ),
                                         ),
                                       ),
                                     ),
                                   ],
                                 ),
                               ),
+
                               const SizedBox(width: 16),
-                              const CircleAvatar(
-                                radius: 18,
-                                backgroundImage: AssetImage('assets/images/avatar/commoner.png'),
+
+                              // AVATAR
+                              GestureDetector(
+                                onTap: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) => const ProfilePage(),
+                                    ),
+                                  );
+                                },
+                                child: const CircleAvatar(
+                                  radius: 18,
+                                  backgroundImage: AssetImage(
+                                    'assets/images/avatar/commoner.png',
+                                  ),
+                                ),
                               ),
                             ],
                           ),
                         ],
                       ),
+
                       const SizedBox(height: 24),
-                      const Text(
-                        'Hi, New User 👋',
-                        style: TextStyle(
+
+                      // GREETING
+                      Text(
+                        'Hi, $_userName 👋',
+                        style: const TextStyle(
                           fontSize: 26,
                           fontWeight: FontWeight.bold,
                           color: Color(0xFF1E3A2F),
                         ),
                       ),
+
                       const SizedBox(height: 4),
+
                       const Text(
                         'Ready to explore today?',
                         style: TextStyle(
@@ -215,102 +417,360 @@ class _HomePageState extends State<HomePage> {
                 ),
               ),
             ),
-            
-            // 2. Accessible Places Near You
-            Padding(
-              padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text(
-                    'Accessible Places Near You',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF333333),
-                    ),
+
+            // ====================================================
+            // CONTENT STATES
+            // ====================================================
+
+            if (_isLoadingDestinations || _isLoadingCategories)
+
+              const Padding(
+                padding: EdgeInsets.symmetric(
+                  vertical: 80,
+                ),
+                child: Center(
+                  child: CircularProgressIndicator(
+                    color: Color(0xFF7D9240),
                   ),
-                  GestureDetector(
-                    onTap: () => Navigator.pushNamed(context, AppRoutes.destinations),
-                    child: const Text(
-                      'See all >',
+                ),
+              )
+            else ...[
+              // ====================================================
+              // 2. DESTINATION RECOMMENDATIONS
+              // ====================================================
+
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  24,
+                  24,
+                  24,
+                  16,
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      'Destination Recommendations',
                       style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
-                        color: Color(0xFF5B7D46),
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF333333),
                       ),
                     ),
-                  ),
-                ],
-              ),
-            ),
-            SizedBox(
-              height: 260, // Height for the card including icons
-              child: _isLoadingLocation
-                ? const Center(child: CircularProgressIndicator())
-                : ListView.builder(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    scrollDirection: Axis.horizontal,
-                    itemCount: _destinations.length,
-                    itemBuilder: (context, index) {
-                      final dest = _destinations[index];
-                      return GestureDetector(
-                        onTap: () {
-                          Navigator.pushNamed(
-                            context,
-                            '/destination_detail',
-                            arguments: dest,
-                          );
-                        },
-                        child: Container(
-                          width: 200,
-                          margin: const EdgeInsets.symmetric(horizontal: 8),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(20),
-boxShadow: [
-  BoxShadow(
-    color: Colors.black.withOpacity(0.05),
-    blurRadius: 6,
-    offset: const Offset(0, 2),
-  ),
-],
+                    GestureDetector(
+                      onTap: () {
+                        Navigator.pushNamed(
+                          context,
+                          AppRoutes.destinations,
+                        );
+                      },
+                      child: const Text(
+                        'See all >',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                          color: Color(0xFF5B7D46),
                         ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            // Image with Tag
-                            Stack(
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              if (_destinations.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.symmetric(
+                    vertical: 40,
+                  ),
+                  child: Center(
+                    child: Text('No destinations found'),
+                  ),
+                )
+              else
+
+              // ==================================================
+              // DESTINATION HORIZONTAL LIST
+              // ==================================================
+
+              SizedBox(
+                height: 282,
+
+                child: ListView.builder(
+                  scrollDirection: Axis.horizontal,
+
+                  // IMPORTANT:
+                  // Bottom padding gives the shadow enough space.
+                  padding: const EdgeInsets.fromLTRB(
+                    16,
+                    8,
+                    16,
+                    18,
+                  ),
+
+                  itemCount: _destinations.length > 5 ? 5 : _destinations.length,
+
+                  itemBuilder: (context, index) {
+                    final dest = _destinations[index];
+
+                    return GestureDetector(
+                      onTap: () {
+                        Navigator.pushNamed(
+                          context,
+                          '/destination_detail',
+                          arguments: dest,
+                        );
+                      },
+
+                      child: Container(
+                        width: 200,
+
+                        margin: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                        ),
+
+                        child: Material(
+                          color: Colors.white,
+
+                          elevation: 3,
+
+                          shadowColor:
+                              Colors.black.withOpacity(0.14),
+
+                          borderRadius:
+                              BorderRadius.circular(20),
+
+                          clipBehavior: Clip.antiAlias,
+
+                          child: SizedBox(
+                            height: 248,
+
+                            child: Column(
+                              crossAxisAlignment:
+                                  CrossAxisAlignment.start,
                               children: [
-                                ClipRRect(
-                                  borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-                                  child: Image.asset(
-                                    dest['image'],
-                                    height: 120,
-                                    width: double.infinity,
-                                    fit: BoxFit.cover,
+
+                                // ==================================
+                                // IMAGE
+                                // ==================================
+
+                                SizedBox(
+                                  height: 118,
+                                  width: double.infinity,
+
+                                  child: Stack(
+                                    children: [
+
+                                      // IMAGE
+                                      Positioned.fill(
+                                        child:
+                                            dest['image'] != null &&
+                                                    dest['image']
+                                                        .toString()
+                                                        .startsWith(
+                                                          'http',
+                                                        )
+                                                ? Image.network(
+                                                    dest['image'],
+                                                    headers: const {
+                                                      'ngrok-skip-browser-warning':
+                                                          'true',
+                                                    },
+                                                    fit: BoxFit.cover,
+
+                                                    errorBuilder:
+                                                        (
+                                                      context,
+                                                      error,
+                                                      stackTrace,
+                                                    ) {
+                                                      return Image.asset(
+                                                        'assets/images/other/splashscreen.png',
+                                                        fit: BoxFit.cover,
+                                                      );
+                                                    },
+                                                  )
+                                                : Image.asset(
+                                                    'assets/images/other/splashscreen.png',
+                                                    fit: BoxFit.cover,
+                                                  ),
+                                      ),
+
+                                      // ACCESSIBILITY BADGE
+                                      Positioned(
+                                        left: 10,
+                                        bottom: 10,
+
+                                        child: Container(
+                                          padding:
+                                              const EdgeInsets.symmetric(
+                                            horizontal: 8,
+                                            vertical: 5,
+                                          ),
+
+                                          decoration:
+                                              BoxDecoration(
+                                            color: const Color(
+                                              0xFFE8F0DF,
+                                            ),
+                                            borderRadius:
+                                                BorderRadius.circular(
+                                              12,
+                                            ),
+                                          ),
+
+                                          child: Row(
+                                            mainAxisSize:
+                                                MainAxisSize.min,
+                                            children: [
+
+                                              const Icon(
+                                                Icons.accessible,
+                                                size: 12,
+                                                color: Color(
+                                                  0xFF5B7D46,
+                                                ),
+                                              ),
+
+                                              const SizedBox(
+                                                width: 4,
+                                              ),
+
+                                              Text(
+                                                dest[
+                                                        'isHighlyAccessible']
+                                                    ? 'Highly Accessible'
+                                                    : 'Accessible',
+
+                                                style:
+                                                    const TextStyle(
+                                                  fontSize: 10,
+                                                  fontWeight:
+                                                      FontWeight.bold,
+                                                  color: Color(
+                                                    0xFF5B7D46,
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ),
-                                Positioned(
-                                  bottom: 8,
-                                  left: 8,
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                    decoration: BoxDecoration(
-                                      color: const Color(0xFFE8F0DF),
-                                      borderRadius: BorderRadius.circular(12),
+
+                                // ==================================
+                                // CARD CONTENT
+                                // ==================================
+
+                                Expanded(
+                                  child: Padding(
+                                    padding:
+                                        const EdgeInsets.fromLTRB(
+                                      12,
+                                      11,
+                                      12,
+                                      12,
                                     ),
-                                    child: Row(
+
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+
                                       children: [
-                                        const Icon(Icons.accessible, size: 12, color: Color(0xFF5B7D46)),
-                                        const SizedBox(width: 4),
+
+                                        // DESTINATION NAME
                                         Text(
-                                          dest['isHighlyAccessible'] ? 'Highly Accessible' : 'Accessible',
-                                          style: const TextStyle(
-                                            fontSize: 10,
-                                            fontWeight: FontWeight.bold,
-                                            color: Color(0xFF5B7D46),
+                                          dest['title'],
+                                          maxLines: 1,
+                                          overflow:
+                                              TextOverflow.ellipsis,
+
+                                          style:
+                                              const TextStyle(
+                                            fontSize: 14,
+                                            fontWeight:
+                                                FontWeight.bold,
+                                            color: Color(
+                                              0xFF333333,
+                                            ),
                                           ),
+                                        ),
+
+                                        const SizedBox(
+                                          height: 8,
+                                        ),
+
+                                        // DISTANCE
+                                        Row(
+                                          children: [
+
+                                            const Icon(
+                                              Icons.location_on,
+                                              size: 14,
+                                              color: Color(
+                                                0xFF5B7D46,
+                                              ),
+                                            ),
+
+                                            const SizedBox(
+                                              width: 3,
+                                            ),
+
+                                            Text(
+                                              dest['distance'] !=
+                                                      null
+                                                  ? '${dest['distance'].toStringAsFixed(1)} km'
+                                                  : '-',
+
+                                              style:
+                                                  const TextStyle(
+                                                fontSize: 12,
+                                                color:
+                                                    Colors.black54,
+                                                fontWeight:
+                                                    FontWeight.w500,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+
+                                        // PUSH ICONS TO BOTTOM
+                                        const Spacer(),
+
+                                        // ACCESSIBILITY FACILITIES
+                                        Row(
+                                          children: [
+
+                                            _buildAccessIcon(
+                                              Icons.accessible,
+                                            ),
+
+                                            const SizedBox(
+                                              width: 7,
+                                            ),
+
+                                            _buildAccessIcon(
+                                              Icons
+                                                  .signal_cellular_4_bar,
+                                            ),
+
+                                            const SizedBox(
+                                              width: 7,
+                                            ),
+
+                                            _buildAccessIcon(
+                                              Icons.elevator,
+                                            ),
+
+                                            const SizedBox(
+                                              width: 7,
+                                            ),
+
+                                            _buildAccessIcon(
+                                              Icons.local_parking,
+                                            ),
+                                          ],
                                         ),
                                       ],
                                     ),
@@ -318,75 +778,35 @@ boxShadow: [
                                 ),
                               ],
                             ),
-                            // Details
-                            Padding(
-                              padding: const EdgeInsets.all(12.0),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    dest['title'],
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 14,
-                                    ),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                  const SizedBox(height: 12),
-                                  Row(
-                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      Row(
-                                        children: [
-                                          const Icon(Icons.location_on, size: 14, color: Color(0xFF5B7D46)),
-                                          const SizedBox(width: 2),
-                                          Text(
-                                            dest['distance'] != null
-                                                ? '${dest['distance'].toStringAsFixed(1)} km'
-                                                : '-',
-                                            style: const TextStyle(
-                                              fontSize: 12,
-                                              color: Colors.black54,
-                                              fontWeight: FontWeight.w500,
-                                            ),
-                                          ),
-                                        ],
-                                      ),],
-                                  ),
-                                  const SizedBox(height: 16),
-                                  // Accessibility Icons Row
-                                  Row(
-                                    mainAxisAlignment: MainAxisAlignment.start,
-                                    children: [
-                                      _buildAccessIcon(Icons.accessible),
-                                      const SizedBox(width: 8),
-                                      _buildAccessIcon(Icons.signal_cellular_4_bar), // Used as a visual placeholder for ramp
-                                      const SizedBox(width: 8),
-                                      _buildAccessIcon(Icons.elevator), 
-                                      const SizedBox(width: 8),
-                                      _buildAccessIcon(Icons.local_parking),
-                                    ],
-                                  )
-                                ],
-                              ),
-                            ),
-                          ],
+                          ),
                         ),
                       ),
                     );
                   },
-                  ),
-            ),
-            
-            // 3. Categories
+                ),
+              ),
+
+            // ====================================================
+            // 3. CATEGORIES
+            // ====================================================
+
             Padding(
-              padding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
+              padding: const EdgeInsets.fromLTRB(
+                24,
+                18,
+                24,
+                8,
+              ),
+
               child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                mainAxisAlignment:
+                    MainAxisAlignment.spaceBetween,
+
                 children: const [
+
                   Text(
                     'Categories',
+
                     style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
@@ -396,116 +816,258 @@ boxShadow: [
                 ],
               ),
             ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16.0),
-              child: GridView.builder(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: _categories.length,
-                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 3,
-                  mainAxisSpacing: 8,
-                  crossAxisSpacing: 16,
-                  childAspectRatio: 1.1,
-                ),
-                itemBuilder: (context, index) {
-                  return GestureDetector(
-                    onTap: () => Navigator.pushNamed(context, AppRoutes.destinations, arguments: _categories[index]['title']),
-                    child: Column(
-                      children: [
-                      Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFF9FBF5),
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: const Color(0xFFE8F0DF)),
-                        ),
-                        child: Icon(
-                          _categories[index]['icon'],
-                          color: const Color(0xFF5B7D46),
-                          size: 24,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        _categories[index]['title'],
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w500,
-                          color: Color(0xFF333333),
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      ],
+
+            // ====================================================
+            // CATEGORY GRID
+            // ====================================================
+
+            _categories.isEmpty
+
+                ? const Padding(
+                    padding: EdgeInsets.symmetric(
+                      vertical: 40,
                     ),
-                  );
-                },
-              ),
-            ),
-            
-            // 4. CTA Card (Plan Your Accessible Trip)
+
+                    child: Center(
+                      child: Text(
+                        'No categories found',
+                      ),
+                    ),
+                  )
+
+                : GridView.builder(
+                    padding: const EdgeInsets.fromLTRB(
+                      16,
+                      4,
+                      16,
+                      24,
+                    ),
+
+                    shrinkWrap: true,
+
+                    physics:
+                        const NeverScrollableScrollPhysics(),
+
+                    itemCount:
+                        _categories.length,
+
+                    gridDelegate:
+                        const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 3,
+                      mainAxisSpacing: 8,
+                      crossAxisSpacing: 16,
+                      childAspectRatio: 1.1,
+                    ),
+
+                          itemBuilder:
+                              (context, index) {
+
+                            return GestureDetector(
+                              onTap: () {
+                                Navigator.pushNamed(
+                                  context,
+                                  AppRoutes.destinations,
+                                  arguments:
+                                      _categories[index]
+                                          ['title'],
+                                );
+                              },
+
+                              child: Column(
+                                children: [
+
+                                  Container(
+                                    padding:
+                                        const EdgeInsets.all(
+                                      16,
+                                    ),
+
+                                    decoration:
+                                        BoxDecoration(
+                                      color: const Color(
+                                        0xFFF9FBF5,
+                                      ),
+
+                                      borderRadius:
+                                          BorderRadius.circular(
+                                        16,
+                                      ),
+
+                                      border: Border.all(
+                                        color: const Color(
+                                          0xFFE8F0DF,
+                                        ),
+                                      ),
+                                    ),
+
+                                    child: Icon(
+                                      _categories[index]
+                                          ['icon'],
+
+                                      color: const Color(
+                                        0xFF5B7D46,
+                                      ),
+
+                                      size: 24,
+                                    ),
+                                  ),
+
+                                  const SizedBox(
+                                    height: 8,
+                                  ),
+
+                                  Text(
+                                    _categories[index]
+                                        ['title'],
+
+                                    textAlign:
+                                        TextAlign.center,
+
+                                    maxLines: 1,
+
+                                    overflow:
+                                        TextOverflow.ellipsis,
+
+                                    style:
+                                        const TextStyle(
+                                      fontSize: 11,
+                                      fontWeight:
+                                          FontWeight.w500,
+                                      color: Color(
+                                        0xFF333333,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+
+            // ====================================================
+            // 4. CTA CARD
+            // ====================================================
+
             Padding(
-              padding: const EdgeInsets.all(24.0),
+              padding: const EdgeInsets.all(24),
+
               child: Container(
                 width: double.infinity,
+
                 padding: const EdgeInsets.all(20),
+
                 decoration: BoxDecoration(
-                  color: const Color(0xFFF0F5EB), // Very light green
-                  borderRadius: BorderRadius.circular(20),
+                  color: const Color(
+                    0xFFF0F5EB,
+                  ),
+
+                  borderRadius:
+                      BorderRadius.circular(20),
                 ),
+
                 child: Row(
                   children: [
+
                     Expanded(
                       flex: 6,
+
                       child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                        crossAxisAlignment:
+                            CrossAxisAlignment.start,
+
                         children: [
+
                           const Text(
                             'Plan Your Accessible Trip',
+
                             style: TextStyle(
-                              color: Color(0xFF333333),
+                              color: Color(
+                                0xFF333333,
+                              ),
                               fontSize: 16,
-                              fontWeight: FontWeight.bold,
+                              fontWeight:
+                                  FontWeight.bold,
                             ),
                           ),
-                          const SizedBox(height: 8),
+
+                          const SizedBox(
+                            height: 8,
+                          ),
+
                           const Text(
                             'Create a route based on your destinations and accessibility needs.',
+
                             style: TextStyle(
                               color: Colors.black54,
                               fontSize: 12,
                             ),
                           ),
-                          const SizedBox(height: 16),
+
+                          const SizedBox(
+                            height: 16,
+                          ),
+
                           ElevatedButton(
                             onPressed: () {
-                              Navigator.pushNamed(context, '/route_form');
+                              Navigator.pushNamed(
+                                context,
+                                '/route_form',
+                              );
                             },
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF5B7D46),
-                              foregroundColor: Colors.white,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(20),
+
+                            style:
+                                ElevatedButton.styleFrom(
+                              backgroundColor:
+                                  const Color(
+                                0xFF5B7D46,
                               ),
-                              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+
+                              foregroundColor:
+                                  Colors.white,
+
+                              shape:
+                                  RoundedRectangleBorder(
+                                borderRadius:
+                                    BorderRadius.circular(
+                                  20,
+                                ),
+                              ),
+
+                              padding:
+                                  const EdgeInsets.symmetric(
+                                horizontal: 20,
+                                vertical: 8,
+                              ),
+
                               elevation: 0,
                             ),
+
                             child: const Text(
                               'Plan a Route >',
-                              style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight:
+                                    FontWeight.bold,
+                              ),
                             ),
                           ),
                         ],
                       ),
                     ),
-                    const SizedBox(width: 16),
+
+                    const SizedBox(
+                      width: 16,
+                    ),
+
                     Expanded(
                       flex: 4,
+
                       child: Image.asset(
-                        'assets/images/mascot/avatar6.png', // Temporary map placeholder
+                        'assets/images/mascot/avatar6.png',
+
                         fit: BoxFit.contain,
+
                         height: 100,
                       ),
                     ),
@@ -513,23 +1075,45 @@ boxShadow: [
                 ),
               ),
             ),
-            
-            const SizedBox(height: 20),
+
+            const SizedBox(
+              height: 20,
+            ),
+            ], // End of else block
           ],
         ),
       ),
+    ),
     );
   }
 
+  // ============================================================
+  // ACCESSIBILITY ICON
+  // ============================================================
+
   Widget _buildAccessIcon(IconData icon) {
     return Container(
-      padding: const EdgeInsets.all(4),
+      width: 28,
+      height: 28,
+      alignment: Alignment.center,
+
       decoration: BoxDecoration(
-        color: Colors.transparent,
-        border: Border.all(color: Colors.grey.shade300),
-        borderRadius: BorderRadius.circular(4),
+        color: const Color(0xFFF7F9F3),
+
+        borderRadius:
+            BorderRadius.circular(7),
+
+        border: Border.all(
+          color: const Color(0xFFE1E6DA),
+          width: 1,
+        ),
       ),
-      child: Icon(icon, size: 14, color: Colors.grey.shade600),
+
+      child: Icon(
+        icon,
+        size: 14,
+        color: const Color(0xFF6B7565),
+      ),
     );
   }
 }

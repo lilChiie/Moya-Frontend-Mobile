@@ -1,30 +1,59 @@
 import 'package:flutter/material.dart';
+import '../../core/services/leaderboard_service.dart';
 
-class LeaderboardPage extends StatelessWidget {
+class LeaderboardPage extends StatefulWidget {
   const LeaderboardPage({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    final List<Map<String, dynamic>> _users = [
-      {'name': 'Raja_Batam', 'points': 4500, 'avatar': 'assets/images/mascot/avatar1.png'}, // Rank 1
-      {'name': 'John Doe', 'points': 4100, 'avatar': 'assets/images/mascot/avatar2.png'}, // Rank 2
-      {'name': 'Siti Traveler', 'points': 3900, 'avatar': 'assets/images/mascot/avatar3.png'}, // Rank 3
-      {'name': 'Alex_99', 'points': 3200, 'avatar': 'assets/images/mascot/avatar4.png'},
-      {'name': 'Maria Explorer', 'points': 2800, 'avatar': 'assets/images/mascot/avatar5.png'},
-      {'name': 'Budi Santos', 'points': 2500, 'avatar': 'assets/images/mascot/avatar6.png'},
-      {'name': 'Kurniawan', 'points': 2100, 'avatar': 'assets/images/mascot/avatar7.png'},
-      {'name': 'Anna.J', 'points': 1950, 'avatar': 'assets/images/mascot/avatar1.png'},
-      {'name': 'David.W', 'points': 1700, 'avatar': 'assets/images/mascot/avatar2.png'},
-      {'name': 'Clara', 'points': 1500, 'avatar': 'assets/images/mascot/avatar3.png'},
-    ];
+  State<LeaderboardPage> createState() => _LeaderboardPageState();
+}
+
+class _LeaderboardPageState extends State<LeaderboardPage> {
+  List<Map<String, dynamic>> _users = [];
+  bool _isLoading = true;
+  
+  @override
+  void initState() {
+    super.initState();
+    _fetchLeaderboard();
+  }
+
+  Future<void> _fetchLeaderboard() async {
+    final service = LeaderboardService();
+    final result = await service.getLeaderboard();
     
+    if (result['success']) {
+      final List<dynamic> data = result['data'];
+      setState(() {
+        _users = data.map((e) {
+          final user = e as Map<String, dynamic>;
+          final rankData = user['rank'] as Map<String, dynamic>?;
+          return {
+            'name': user['name'] ?? 'Unknown',
+            'points': user['total_points'] ?? 0,
+            'avatar': rankData?['avatar'] ?? 'assets/images/avatar/commoner.png'
+          };
+        }).toList();
+        
+        // Sort descending by points just in case backend doesn't sort
+        _users.sort((a, b) => (b['points'] as int).compareTo(a['points'] as int));
+      });
+    }
+    
+    setState(() {
+      _isLoading = false;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
     // Top 3 users
-    final rank1 = _users[0];
-    final rank2 = _users[1];
-    final rank3 = _users[2];
+    final rank1 = _users.isNotEmpty ? _users[0] : null;
+    final rank2 = _users.length > 1 ? _users[1] : null;
+    final rank3 = _users.length > 2 ? _users[2] : null;
     
     // Remaining users
-    final remainingUsers = _users.sublist(3);
+    final remainingUsers = _users.length > 3 ? _users.sublist(3) : [];
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -42,7 +71,9 @@ class LeaderboardPage extends StatelessWidget {
           onPressed: () => Navigator.pop(context),
         ),
       ),
-      body: Column(
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator(color: Color(0xFF7D9240)))
+          : Column(
         children: [
           // ==========================================
           // PODIUM SECTION (Top 3)
@@ -63,35 +94,38 @@ class LeaderboardPage extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 // RANK 2 (Silver)
-                _buildPodiumBlock(
-                  rank: 2,
-                  name: rank2['name'],
-                  points: rank2['points'],
-                  avatar: rank2['avatar'],
-                  height: 120,
-                  color: const Color(0xFFC0C0C0), // Silver
-                ),
+                if (rank2 != null)
+                  _buildPodiumBlock(
+                    rank: 2,
+                    name: rank2['name'],
+                    points: rank2['points'],
+                    avatar: rank2['avatar'],
+                    height: 120,
+                    color: const Color(0xFFC0C0C0), // Silver
+                  ),
                 
                 // RANK 1 (Gold)
-                _buildPodiumBlock(
-                  rank: 1,
-                  name: rank1['name'],
-                  points: rank1['points'],
-                  avatar: rank1['avatar'],
-                  height: 160,
-                  color: const Color(0xFFFFD700), // Gold
-                  isCenter: true,
-                ),
+                if (rank1 != null)
+                  _buildPodiumBlock(
+                    rank: 1,
+                    name: rank1['name'],
+                    points: rank1['points'],
+                    avatar: rank1['avatar'],
+                    height: 160,
+                    color: const Color(0xFFFFD700), // Gold
+                    isCenter: true,
+                  ),
                 
                 // RANK 3 (Bronze)
-                _buildPodiumBlock(
-                  rank: 3,
-                  name: rank3['name'],
-                  points: rank3['points'],
-                  avatar: rank3['avatar'],
-                  height: 90,
-                  color: const Color(0xFFCD7F32), // Bronze
-                ),
+                if (rank3 != null)
+                  _buildPodiumBlock(
+                    rank: 3,
+                    name: rank3['name'],
+                    points: rank3['points'],
+                    avatar: rank3['avatar'],
+                    height: 90,
+                    color: const Color(0xFFCD7F32), // Bronze
+                  ),
               ],
             ),
           ),
@@ -188,12 +222,20 @@ class LeaderboardPage extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.end,
         children: [
           // Avatar
-          Image.asset(
-            avatar,
-            width: 60,
-            height: 60,
-            fit: BoxFit.contain,
-          ),
+          avatar.startsWith('http')
+              ? Image.network(
+                  avatar,
+                  width: 60,
+                  height: 60,
+                  fit: BoxFit.contain,
+                  headers: const {'ngrok-skip-browser-warning': 'true'},
+                )
+              : Image.asset(
+                  avatar,
+                  width: 60,
+                  height: 60,
+                  fit: BoxFit.contain,
+                ),
           const SizedBox(height: 8),
           // Name
           Text(

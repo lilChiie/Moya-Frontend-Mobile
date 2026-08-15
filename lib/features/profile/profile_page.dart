@@ -1,4 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../../core/utils/dialog_utils.dart';
+import '../../core/services/auth_service.dart';
+import '../../core/services/rank_service.dart';
+import '../../core/services/profile_service.dart';
+import '../../core/services/route_service.dart';
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
@@ -10,24 +16,105 @@ class ProfilePage extends StatefulWidget {
 class _ProfilePageState extends State<ProfilePage> {
   String _selectedAvatar = 'assets/images/avatar/commoner.png';
   
-  final TextEditingController _nameController = TextEditingController(text: 'John Doe');
-  final TextEditingController _emailController = TextEditingController(text: 'johndoe@example.com');
-  final TextEditingController _passwordController = TextEditingController(text: 'password123');
+  final TextEditingController _nameController = TextEditingController();
+  final TextEditingController _emailController = TextEditingController();
+  final TextEditingController _passwordController = TextEditingController(text: '******');
+  final TextEditingController _confirmPasswordController = TextEditingController(text: '******');
 
-  final List<String> _avatars = [
-    'assets/images/avatar/clown.png',
-    'assets/images/avatar/commoner.png',
-    'assets/images/avatar/king.png',
-    'assets/images/avatar/knight.png',
-    'assets/images/avatar/merchant.png',
-    'assets/images/avatar/prince.png',
-    'assets/images/avatar/princess.png',
-    'assets/images/avatar/queen.png',
-    'assets/images/avatar/warrior.png',
-    'assets/images/avatar/witch.png',
-  ];
+  List<Map<String, dynamic>> _ranks = [];
+  int _userPoints = 0;
+  String _currentRankName = 'Commoner';
+  int _destinationsVisited = 0;
+  
+  bool _isLoading = true;
+  bool _isSaving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadProfileData();
+  }
+
+  Future<void> _loadProfileData() async {
+    final prefs = await SharedPreferences.getInstance();
+    
+    _userPoints = prefs.getInt('user_points') ?? 0;
+
+    // Load dynamic visited destinations count from history
+    final historyList = await DestinationHistoryManager().getHistory();
+    _destinationsVisited = historyList.length;
+
+    setState(() {
+      _nameController.text = prefs.getString('user_name') ?? 'John Doe';
+      _emailController.text = prefs.getString('user_email') ?? 'johndoe@example.com';
+    });
+    
+    // Fetch profile from backend
+    final profileService = ProfileService();
+    final profileResult = await profileService.getProfile();
+    if (profileResult['success'] && profileResult['data'] != null) {
+      final profileData = profileResult['data'];
+      _userPoints = profileData['total_points'] ?? _userPoints;
+      
+      setState(() {
+        _nameController.text = profileData['name'] ?? _nameController.text;
+        _emailController.text = profileData['email'] ?? _emailController.text;
+        // Also update local cache
+        prefs.setString('user_name', _nameController.text);
+        prefs.setInt('user_points', _userPoints);
+      });
+    }
+
+    // Fetch dynamic ranks
+    final rankService = RankService();
+    final result = await rankService.getRanks();
+    if (result['success']) {
+      final List<dynamic> data = result['data'];
+      setState(() {
+        _ranks = data.map((e) => e as Map<String, dynamic>).toList();
+        
+        Map<String, dynamic>? currentRank;
+        for (var rank in _ranks) {
+          final int minPoint = int.tryParse(rank['min_point'].toString()) ?? 0;
+          final int maxPoint = int.tryParse(rank['max_point'].toString()) ?? 0;
+          if (_userPoints >= minPoint && _userPoints <= maxPoint) {
+            currentRank = rank;
+            break;
+          }
+        }
+        
+        if (currentRank == null && _ranks.isNotEmpty) {
+           currentRank = _ranks.firstWhere(
+             (r) => r['name'].toString().toLowerCase() == 'commoner' || r['min_point'] == 0, 
+             orElse: () => _ranks.last
+           );
+        }
+        
+        if (currentRank != null) {
+           _currentRankName = currentRank['name']?.toString() ?? 'Commoner';
+           final savedAvatar = prefs.getString('user_avatar');
+           if (savedAvatar != null && savedAvatar.isNotEmpty) {
+             _selectedAvatar = savedAvatar;
+           } else {
+             _selectedAvatar = currentRank['avatar']?.toString() ?? '';
+           }
+        }
+      });
+    }
+    
+    setState(() {
+      _isLoading = false;
+    });
+  }
 
   void _showAvatarPicker(BuildContext context) {
+    final List<Map<String, dynamic>> sortedRanks = List.from(_ranks);
+    sortedRanks.sort((a, b) {
+      final aMin = int.tryParse(a['min_point'].toString()) ?? 0;
+      final bMin = int.tryParse(b['min_point'].toString()) ?? 0;
+      return aMin.compareTo(bMin);
+    });
+
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.white,
@@ -57,29 +144,55 @@ class _ProfilePageState extends State<ProfilePage> {
                     crossAxisSpacing: 16,
                     mainAxisSpacing: 16,
                   ),
-                  itemCount: _avatars.length,
+                  itemCount: sortedRanks.length,
                   itemBuilder: (context, index) {
-                    final avatar = _avatars[index];
+                    final rank = sortedRanks[index];
+                    final avatar = rank['avatar']?.toString() ?? '';
                     final isSelected = _selectedAvatar == avatar;
+                    final minPoint = int.tryParse(rank['min_point'].toString()) ?? 0;
+                    final isLocked = minPoint > _userPoints;
                     
                     return GestureDetector(
-                      onTap: () {
+                      onTap: isLocked ? null : () async {
                         setState(() {
                           _selectedAvatar = avatar;
                         });
-                        Navigator.pop(ctx);
+                        final prefs = await SharedPreferences.getInstance();
+                        await prefs.setString('user_avatar', avatar);
+                        if (mounted) Navigator.pop(ctx);
                       },
                       child: Container(
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          color: const Color(0xFFF2F5EA),
+                          color: isLocked ? Colors.grey.shade200 : const Color(0xFFF2F5EA),
                           border: Border.all(
                             color: isSelected ? const Color(0xFF7D9240) : Colors.transparent,
                             width: 3,
                           ),
                         ),
                         padding: const EdgeInsets.all(8),
-                        child: Image.asset(avatar),
+                        child: Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            Opacity(
+                              opacity: isLocked ? 0.3 : 1.0,
+                              child: avatar.startsWith('http')
+                                  ? Image.network(
+                                      avatar,
+                                      headers: const {'ngrok-skip-browser-warning': 'true'},
+                                    )
+                                  : Image.asset(
+                                      avatar.isNotEmpty ? avatar : 'assets/images/avatar/commoner.png'
+                                    ),
+                            ),
+                            if (isLocked)
+                              const Icon(
+                                Icons.lock,
+                                color: Colors.grey,
+                                size: 24,
+                              ),
+                          ],
+                        ),
                       ),
                     );
                   },
@@ -110,8 +223,18 @@ class _ProfilePageState extends State<ProfilePage> {
           onPressed: () => Navigator.pop(context),
         ),
       ),
-      body: SingleChildScrollView(
-        child: Column(
+      body: RefreshIndicator(
+        color: const Color(0xFF7D9240),
+        onRefresh: _loadProfileData,
+        child: _isLoading 
+            ? const Center(
+                child: CircularProgressIndicator(
+                  color: Color(0xFF7D9240),
+                ),
+              )
+            : SingleChildScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                child: Column(
           children: [
             // ====================================================
             // HERO IMAGE & AVATAR
@@ -156,10 +279,16 @@ class _ProfilePageState extends State<ProfilePage> {
                           ),
                           child: Padding(
                             padding: const EdgeInsets.all(12.0),
-                            child: Image.asset(_selectedAvatar),
+                            child: _selectedAvatar.startsWith('http')
+                              ? Image.network(
+                                  _selectedAvatar,
+                                  headers: const {'ngrok-skip-browser-warning': 'true'},
+                                )
+                              : Image.asset(
+                                  _selectedAvatar.isNotEmpty ? _selectedAvatar : 'assets/images/avatar/commoner.png'
+                                ),
                           ),
                         ),
-                        // Small edit icon
                         Container(
                           padding: const EdgeInsets.all(6),
                           decoration: const BoxDecoration(
@@ -223,45 +352,83 @@ class _ProfilePageState extends State<ProfilePage> {
             // ====================================================
             // USER INFO
             // ====================================================
-            const Text(
-              'John Doe',
-              style: TextStyle(
+            Text(
+              _nameController.text.isNotEmpty ? _nameController.text : 'John Doe',
+              style: const TextStyle(
                 fontSize: 22,
                 fontWeight: FontWeight.bold,
                 color: Color(0xFF1E3A2F),
               ),
             ),
             const SizedBox(height: 8),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-              decoration: BoxDecoration(
-                color: const Color(0xFFE8F0DF),
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: const Text(
-                'Rank: Commoner',
-                style: TextStyle(
-                  color: Color(0xFF7D9240),
-                  fontWeight: FontWeight.bold,
-                  fontSize: 14,
-                ),
-              ),
-            ),
-            const SizedBox(height: 12),
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(Icons.location_on, color: Colors.grey.shade500, size: 18),
-                const SizedBox(width: 4),
-                Text(
-                  '12 Destinations Visited',
-                  style: TextStyle(
-                    color: Colors.grey.shade600,
-                    fontWeight: FontWeight.w500,
-                    fontSize: 14,
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE8F0DF),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    'Rank: $_currentRankName',
+                    style: const TextStyle(
+                      color: Color(0xFF7D9240),
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE8F0DF),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    'Points: $_userPoints',
+                    style: const TextStyle(
+                      color: Color(0xFF7D9240),
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                    ),
                   ),
                 ),
               ],
+            ),
+            const SizedBox(height: 12),
+            InkWell(
+              borderRadius: BorderRadius.circular(20),
+              onTap: () {
+                Navigator.pushNamed(
+                  context,
+                  '/destinations',
+                  arguments: {'tab': 'history'},
+                );
+              },
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.location_on, color: const Color(0xFF7D9240), size: 18),
+                    const SizedBox(width: 4),
+                    Text(
+                      '$_destinationsVisited Destinations Visited',
+                      style: const TextStyle(
+                        color: Color(0xFF1E3A2F),
+                        fontWeight: FontWeight.w600,
+                        fontSize: 14,
+                        decoration: TextDecoration.underline,
+                        decorationColor: Color(0xFF7D9240),
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    const Icon(Icons.arrow_forward_ios, size: 11, color: Color(0xFF7D9240)),
+                  ],
+                ),
+              ),
             ),
             
             const SizedBox(height: 32),
@@ -307,6 +474,15 @@ class _ProfilePageState extends State<ProfilePage> {
                     icon: Icons.lock_outline,
                     isPassword: true,
                   ),
+                  const SizedBox(height: 16),
+                  
+                  // Confirm Password Field
+                  _buildTextField(
+                    label: 'Confirm Password',
+                    controller: _confirmPasswordController,
+                    icon: Icons.lock_outline,
+                    isPassword: true,
+                  ),
                   
                   const SizedBox(height: 32),
                   
@@ -314,22 +490,99 @@ class _ProfilePageState extends State<ProfilePage> {
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton(
-                      onPressed: () {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Profile saved successfully (Mock)')),
+                      onPressed: _isSaving ? null : () async {
+                        final password = _passwordController.text;
+                        final confirmPassword = _confirmPasswordController.text;
+                        
+                        if (password != confirmPassword) {
+                          AppDialogs.showStatusDialog(
+                            context: context,
+                            isSuccess: false,
+                            title: 'Validation Error',
+                            message: 'Passwords do not match.',
+                            buttonText: 'OK',
+                            onPressed: () => Navigator.pop(context),
+                          );
+                          return;
+                        }
+
+                        setState(() => _isSaving = true);
+                        
+                        final profileService = ProfileService();
+                        final result = await profileService.updateProfile(
+                          name: _nameController.text,
+                          password: password == '******' || password.isEmpty ? null : password,
                         );
+                        
+                        setState(() => _isSaving = false);
+                        
+                        if (mounted) {
+                          AppDialogs.showStatusDialog(
+                            context: context,
+                            isSuccess: result['success'],
+                            title: result['success'] ? 'Success' : 'Error',
+                            message: result['message'] ?? (result['success'] ? 'Profile updated successfully' : 'Failed to update profile'),
+                            buttonText: 'OK',
+                            onPressed: () => Navigator.pop(context),
+                          );
+                        }
                       },
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFF7D9240),
                         foregroundColor: Colors.white,
                         padding: const EdgeInsets.symmetric(vertical: 16),
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14),
+                          borderRadius: BorderRadius.circular(12),
                         ),
                         elevation: 0,
                       ),
+                      child: _isSaving 
+                        ? const SizedBox(
+                            height: 24, 
+                            width: 24, 
+                            child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)
+                          )
+                        : const Text(
+                            'Save Changes',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                    ),
+                  ),
+                  
+                  const SizedBox(height: 16),
+                  
+                  // Logout Button
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton(
+                      onPressed: () {
+                        AppDialogs.showConfirmDialog(
+                          context: context,
+                          title: 'Logout',
+                          message: 'Are you sure you want to log out?',
+                          confirmText: 'Logout',
+                          onConfirm: () async {
+                            final authService = AuthService();
+                            await authService.logout();
+                            if (mounted) {
+                              Navigator.pushNamedAndRemoveUntil(context, '/login', (route) => false);
+                            }
+                          },
+                        );
+                      },
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.red,
+                        side: const BorderSide(color: Colors.red),
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
                       child: const Text(
-                        'Save Changes',
+                        'Logout',
                         style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
@@ -337,13 +590,14 @@ class _ProfilePageState extends State<ProfilePage> {
                       ),
                     ),
                   ),
-                  
+
                   const SizedBox(height: 40),
                 ],
               ),
             ),
           ],
         ),
+      ),
       ),
     );
   }

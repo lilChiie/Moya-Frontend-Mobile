@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../app/routes.dart';
+import '../../core/services/auth_service.dart';
+import '../../core/utils/dialog_utils.dart';
 
 class RegisterPage extends StatefulWidget {
   const RegisterPage({super.key});
@@ -9,8 +11,92 @@ class RegisterPage extends StatefulWidget {
 }
 
 class _RegisterPageState extends State<RegisterPage> {
+  final TextEditingController _nameController = TextEditingController();
+  final TextEditingController _emailController = TextEditingController();
+  final TextEditingController _passwordController = TextEditingController();
+  final AuthService _authService = AuthService();
+
   bool _obscureText = true;
-  bool _obscureConfirmText = true;
+  bool _isLoading = false;
+  String? _emailError;
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _emailController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _handleRegister() async {
+    final name = _nameController.text.trim();
+    final email = _emailController.text.trim();
+    final password = _passwordController.text;
+
+    if (name.isEmpty || email.isEmpty || password.isEmpty) {
+      AppDialogs.showStatusDialog(
+        context: context,
+        isSuccess: false,
+        title: 'Validation Error',
+        message: 'Please fill in all fields.',
+        buttonText: 'OK',
+        onPressed: () => Navigator.pop(context),
+      );
+      return;
+    }
+
+    final emailRegex = RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$');
+    if (!emailRegex.hasMatch(email)) {
+      AppDialogs.showStatusDialog(
+        context: context,
+        isSuccess: false,
+        title: 'Invalid Email',
+        message: 'Please enter a valid email address.',
+        buttonText: 'OK',
+        onPressed: () => Navigator.pop(context),
+      );
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    final result = await _authService.register(
+      _nameController.text.trim(),
+      _emailController.text.trim(),
+      _passwordController.text,
+    );
+
+    if (mounted) {
+      setState(() {
+        _isLoading = false;
+      });
+
+      if (result['success']) {
+        AppDialogs.showStatusDialog(
+          context: context,
+          isSuccess: true,
+          title: 'Success',
+          message: result['message'],
+          buttonText: 'Go to Login',
+          onPressed: () {
+            Navigator.pop(context); // Close dialog
+            Navigator.pushReplacementNamed(context, AppRoutes.login);
+          },
+        );
+      } else {
+        AppDialogs.showStatusDialog(
+          context: context,
+          isSuccess: false,
+          title: 'Registration Failed',
+          message: result['message'],
+          buttonText: 'Try Again',
+          onPressed: () => Navigator.pop(context),
+        );
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -120,6 +206,7 @@ class _RegisterPageState extends State<RegisterPage> {
                         ),
                         const SizedBox(height: 8),
                         TextField(
+                          controller: _nameController,
                           decoration: InputDecoration(
                             hintText: 'Enter your username',
                             hintStyle: const TextStyle(color: Color(0xFFA0AAB2), fontSize: 14),
@@ -149,8 +236,23 @@ class _RegisterPageState extends State<RegisterPage> {
                         ),
                         const SizedBox(height: 8),
                         TextField(
+                          controller: _emailController,
+                          keyboardType: TextInputType.emailAddress,
+                          onChanged: (value) {
+                            final emailRegex = RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$');
+                            setState(() {
+                              if (value.isEmpty) {
+                                _emailError = null;
+                              } else if (!emailRegex.hasMatch(value)) {
+                                _emailError = 'Please enter a valid email address';
+                              } else {
+                                _emailError = null;
+                              }
+                            });
+                          },
                           decoration: InputDecoration(
                             hintText: 'Enter your email',
+                            errorText: _emailError,
                             hintStyle: const TextStyle(color: Color(0xFFA0AAB2), fontSize: 14),
                             prefixIcon: const Icon(Icons.email_outlined, color: Color(0xFFA0AAB2)),
                             filled: true,
@@ -163,6 +265,14 @@ class _RegisterPageState extends State<RegisterPage> {
                             focusedBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(16),
                               borderSide: const BorderSide(color: Color(0xFF4A6B38), width: 1.5),
+                            ),
+                            errorBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(16),
+                              borderSide: const BorderSide(color: Colors.red),
+                            ),
+                            focusedErrorBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(16),
+                              borderSide: const BorderSide(color: Colors.red, width: 1.5),
                             ),
                           ),
                         ),
@@ -178,6 +288,7 @@ class _RegisterPageState extends State<RegisterPage> {
                         ),
                         const SizedBox(height: 8),
                         TextField(
+                          controller: _passwordController,
                           obscureText: _obscureText,
                           decoration: InputDecoration(
                             hintText: 'Enter your password',
@@ -213,9 +324,7 @@ class _RegisterPageState extends State<RegisterPage> {
                           width: double.infinity,
                           height: 56,
                           child: ElevatedButton(
-                            onPressed: () {
-                              Navigator.pushReplacementNamed(context, AppRoutes.login);
-                            },
+                            onPressed: _isLoading ? null : _handleRegister,
                             style: ElevatedButton.styleFrom(
                               backgroundColor: const Color(0xFF5B7D46), // Moya Green
                               shape: RoundedRectangleBorder(
@@ -223,14 +332,23 @@ class _RegisterPageState extends State<RegisterPage> {
                               ),
                               elevation: 0,
                             ),
-                            child: const Text(
-                              'Register',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
+                            child: _isLoading
+                                ? const SizedBox(
+                                    height: 24,
+                                    width: 24,
+                                    child: CircularProgressIndicator(
+                                      color: Colors.white,
+                                      strokeWidth: 3,
+                                    ),
+                                  )
+                                : const Text(
+                                    'Register',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
                           ),
                         ),
                         const SizedBox(height: 24),
