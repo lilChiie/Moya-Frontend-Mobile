@@ -1008,7 +1008,18 @@ class _DestinationDetailPageState
                           child:
                               OutlinedButton.icon(
                             onPressed: () {
-                              Navigator.pushNamed(context, '/report_condition');
+                              final name = _liveDestDetail?['name'] ??
+                                  dest['title'] ??
+                                  dest['name'] ??
+                                  'Destination';
+                              Navigator.pushNamed(
+                                context,
+                                '/report_condition',
+                                arguments: {
+                                  'id': dest['id'] ?? _liveDestDetail?['id'],
+                                  'name': name,
+                                },
+                              );
                             },
                             icon: const Icon(
                               Icons

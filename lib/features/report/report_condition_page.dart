@@ -21,6 +21,34 @@ class _ReportConditionPageState extends State<ReportConditionPage> {
   
   List<Map<String, dynamic>> _destinations = [];
   bool _isLoadingDestinations = true;
+  bool _argsInitialized = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_argsInitialized) {
+      _argsInitialized = true;
+      final args = ModalRoute.of(context)?.settings.arguments;
+      if (args != null) {
+        if (args is Map) {
+          final name = args['name'] ?? args['title'];
+          if (name != null && name.toString().isNotEmpty) {
+            _destinationController.text = name.toString();
+            if (args['id'] != null) {
+              if (!_destinations.any((d) => d['id'] == args['id'])) {
+                _destinations.add({
+                  'id': args['id'],
+                  'name': name.toString(),
+                });
+              }
+            }
+          }
+        } else if (args is String && args.isNotEmpty) {
+          _destinationController.text = args;
+        }
+      }
+    }
+  }
 
   @override
   void initState() {
@@ -36,7 +64,19 @@ class _ReportConditionPageState extends State<ReportConditionPage> {
         final List<dynamic> data = response['data'] ?? [];
         if (mounted) {
           setState(() {
-            _destinations = data.map((e) => e as Map<String, dynamic>).toList();
+            final apiList = data.map((e) => e as Map<String, dynamic>).toList();
+            if (_destinationController.text.isNotEmpty) {
+              final match = apiList.firstWhere(
+                (d) =>
+                    d['name']?.toString().trim().toLowerCase() ==
+                    _destinationController.text.trim().toLowerCase(),
+                orElse: () => {},
+              );
+              if (match.isNotEmpty) {
+                _destinationController.text = match['name'];
+              }
+            }
+            _destinations = apiList;
             _isLoadingDestinations = false;
           });
         }
@@ -86,9 +126,11 @@ class _ReportConditionPageState extends State<ReportConditionPage> {
   }
 
   Future<void> _submitReport() async {
-    final selectedDestName = _destinationController.text;
+    final selectedDestName = _destinationController.text.trim();
     final selectedDest = _destinations.cast<Map<String, dynamic>?>().firstWhere(
-      (dest) => dest?['name'] == selectedDestName,
+      (dest) =>
+          dest?['name']?.toString().trim().toLowerCase() ==
+          selectedDestName.toLowerCase(),
       orElse: () => null,
     );
 
@@ -297,10 +339,23 @@ class _ReportConditionPageState extends State<ReportConditionPage> {
               builder: (context, constraints) {
                 return DropdownMenu<String>(
                   controller: _destinationController,
+                  initialSelection: _destinationController.text.isNotEmpty
+                      ? _destinationController.text
+                      : null,
                   width: constraints.maxWidth,
                   enableFilter: true,
                   requestFocusOnTap: true,
                   leadingIcon: const Icon(Icons.search),
+                  trailingIcon: _isLoadingDestinations
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Color(0xFF7D9240),
+                          ),
+                        )
+                      : null,
                   hintText: 'Search or select destination...',
                   inputDecorationTheme: InputDecorationTheme(
                     filled: true,
