@@ -5,6 +5,7 @@ import '../../core/services/auth_service.dart';
 import '../../core/services/rank_service.dart';
 import '../../core/services/profile_service.dart';
 import '../../core/services/route_service.dart';
+import '../report/my_report_page.dart';
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
@@ -407,26 +408,19 @@ class _ProfilePageState extends State<ProfilePage> {
                   arguments: {'tab': 'history'},
                 );
               },
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.location_on, color: const Color(0xFF7D9240), size: 18),
-                    const SizedBox(width: 4),
-                    Text(
-                      '$_destinationsVisited Destinations Visited',
-                      style: const TextStyle(
-                        color: Color(0xFF1E3A2F),
-                        fontWeight: FontWeight.w600,
-                        fontSize: 14,
-                        decoration: TextDecoration.underline,
-                        decorationColor: Color(0xFF7D9240),
-                      ),
-                    ),
-                    const SizedBox(width: 4),
-                    const Icon(Icons.arrow_forward_ios, size: 11, color: Color(0xFF7D9240)),
-                  ],
+              child: Ink(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE8F0DF),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  'Destinations Visited: $_destinationsVisited',
+                  style: const TextStyle(
+                    color: Color(0xFF7D9240),
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                  ),
                 ),
               ),
             ),
@@ -434,6 +428,29 @@ class _ProfilePageState extends State<ProfilePage> {
             const SizedBox(height: 32),
             
             // ====================================================
+            // REPORT HISTORY
+            // ====================================================
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+              child: Material(
+                color: const Color(0xFFF2F5EA),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  side: const BorderSide(color: Color(0xFFE1E5D9)),
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: ListTile(
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  leading: const Icon(Icons.assignment_outlined, color: Color(0xFF7D9240), size: 28),
+                  title: const Text('My Report', style: TextStyle(fontWeight: FontWeight.w600, color: Color(0xFF1E3A2F))),
+                  trailing: const Icon(Icons.chevron_right, color: Color(0xFF7D9240)),
+                  onTap: () => Navigator.push(context, MaterialPageRoute<void>(
+                    builder: (_) => const MyReportPage(),
+                  )),
+                ),
+              ),
+            ),
+
             // FORM
             // ====================================================
             Padding(

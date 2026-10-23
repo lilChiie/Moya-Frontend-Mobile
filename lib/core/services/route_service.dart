@@ -1,3 +1,5 @@
+import '../utils/user_errors.dart';
+import 'api_response.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -30,11 +32,14 @@ class RouteService {
     final storedUserId = await _getUserId();
     final effectiveUserId = userId ?? storedUserId ?? 1;
 
-    final url = Uri.parse('${ApiConstants.baseUrl}${ApiConstants.recommendation}');
-    
+    final url = Uri.parse(
+      '${ApiConstants.baseUrl}${ApiConstants.recommendation}',
+    );
+
     final payload = {
       'user_id': effectiveUserId,
-      'accessibility_id': accessibilityIds.isNotEmpty ? accessibilityIds.first : null,
+      'accessibility_id':
+          accessibilityIds.isNotEmpty ? accessibilityIds.first : null,
       'accessibility_ids': accessibilityIds,
       'tourism_id': tourismId,
       'budget': budget,
@@ -56,7 +61,7 @@ class RouteService {
         body: jsonEncode(payload),
       );
 
-      final responseData = jsonDecode(response.body);
+      final responseData = decodeApiResponse(response);
 
       if (response.statusCode == 200 || response.statusCode == 201) {
         return {
@@ -67,15 +72,16 @@ class RouteService {
       } else {
         return {
           'success': false,
-          'message': responseData['message'] ?? responseData['msg'] ?? responseData['error'] ?? 'Failed to generate route.',
+          'message':
+              responseData['message'] ??
+              responseData['msg'] ??
+              responseData['error'] ??
+              'Failed to generate route.',
           'data': responseData,
         };
       }
     } catch (e) {
-      return {
-        'success': false,
-        'message': 'Something went wrong: $e',
-      };
+      return {'success': false, 'message': UserErrors.fromError(e)};
     }
   }
 
@@ -96,7 +102,7 @@ class RouteService {
         },
       );
 
-      final responseData = jsonDecode(response.body);
+      final responseData = decodeApiResponse(response);
 
       if (response.statusCode == 200) {
         List<dynamic> list = [];
@@ -106,10 +112,7 @@ class RouteService {
           list = responseData;
         }
 
-        return {
-          'success': true,
-          'data': list,
-        };
+        return {'success': true, 'data': list};
       } else {
         return {
           'success': false,
@@ -117,10 +120,7 @@ class RouteService {
         };
       }
     } catch (e) {
-      return {
-        'success': false,
-        'message': 'Something went wrong: $e',
-      };
+      return {'success': false, 'message': UserErrors.fromError(e)};
     }
   }
 }
@@ -139,12 +139,30 @@ class TripRouteManager {
     final id = dest['id'];
 
     // Check if already in the list
-    final exists = _userRoute.any((d) => (id != null && d['id'] == id) || d['title'] == title);
+    final exists = _userRoute.any(
+      (d) => (id != null && d['id'] == id) || d['title'] == title,
+    );
     if (!exists) {
-      final double lat = double.tryParse(dest['lat']?.toString() ?? dest['latitude']?.toString() ?? '1.1293') ?? 1.1293;
-      final double lng = double.tryParse(dest['lng']?.toString() ?? dest['longitude']?.toString() ?? '104.0538') ?? 104.0538;
-      final dynamic duration = dest['estimated_duration'] ?? dest['duration'] ?? 90;
-      final int fee = (num.tryParse((dest['entrance_fee'] ?? dest['fee'] ?? 0).toString()) ?? 0).toInt();
+      final double lat =
+          double.tryParse(
+            dest['lat']?.toString() ?? dest['latitude']?.toString() ?? '1.1293',
+          ) ??
+          1.1293;
+      final double lng =
+          double.tryParse(
+            dest['lng']?.toString() ??
+                dest['longitude']?.toString() ??
+                '104.0538',
+          ) ??
+          104.0538;
+      final dynamic duration =
+          dest['estimated_duration'] ?? dest['duration'] ?? 90;
+      final int fee =
+          (num.tryParse(
+                    (dest['entrance_fee'] ?? dest['fee'] ?? 0).toString(),
+                  ) ??
+                  0)
+              .toInt();
 
       _userRoute.add({
         'id': id,
@@ -172,7 +190,8 @@ class TripRouteManager {
 }
 
 class DestinationHistoryManager {
-  static final DestinationHistoryManager _instance = DestinationHistoryManager._internal();
+  static final DestinationHistoryManager _instance =
+      DestinationHistoryManager._internal();
   factory DestinationHistoryManager() => _instance;
   DestinationHistoryManager._internal();
 
@@ -184,7 +203,9 @@ class DestinationHistoryManager {
     if (raw == null || raw.isEmpty) return [];
     try {
       final decoded = jsonDecode(raw) as List;
-      return decoded.map<Map<String, dynamic>>((e) => Map<String, dynamic>.from(e as Map)).toList();
+      return decoded
+          .map<Map<String, dynamic>>((e) => Map<String, dynamic>.from(e as Map))
+          .toList();
     } catch (_) {
       return [];
     }
@@ -196,7 +217,8 @@ class DestinationHistoryManager {
     final current = await getHistory();
 
     final now = DateTime.now();
-    final dateStr = '${now.day} ${_getMonthName(now.month)} ${now.year} • ${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
+    final dateStr =
+        '${now.day} ${_getMonthName(now.month)} ${now.year} • ${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
 
     for (var dest in destinations) {
       final title = (dest['title'] ?? dest['name'] ?? 'Destinasi').toString();
@@ -213,7 +235,8 @@ class DestinationHistoryManager {
         'latitude': dest['latitude'] ?? dest['lat'],
         'longitude': dest['longitude'] ?? dest['lng'],
         'entrance_fee': dest['entrance_fee'] ?? dest['fee'] ?? 0,
-        'estimated_duration': dest['estimated_duration'] ?? dest['time'] ?? '60 min',
+        'estimated_duration':
+            dest['estimated_duration'] ?? dest['time'] ?? '60 min',
         'visited_at': dateStr,
         'status': 'Completed',
       });
@@ -228,7 +251,20 @@ class DestinationHistoryManager {
   }
 
   String _getMonthName(int m) {
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
     return (m >= 1 && m <= 12) ? months[m - 1] : '';
   }
 }
@@ -246,7 +282,9 @@ class SavedRouteManager {
     if (raw == null || raw.isEmpty) return [];
     try {
       final decoded = jsonDecode(raw) as List;
-      return decoded.map<Map<String, dynamic>>((e) => Map<String, dynamic>.from(e as Map)).toList();
+      return decoded
+          .map<Map<String, dynamic>>((e) => Map<String, dynamic>.from(e as Map))
+          .toList();
     } catch (_) {
       return [];
     }
@@ -266,7 +304,10 @@ class SavedRouteManager {
 
     current.insert(0, {
       'id': DateTime.now().millisecondsSinceEpoch,
-      'title': (title != null && title.trim().isNotEmpty) ? title : 'Batam Trip ${now.day}/${now.month}',
+      'title':
+          (title != null && title.trim().isNotEmpty)
+              ? title
+              : 'Batam Trip ${now.day}/${now.month}',
       'date': dateStr,
       'destinations_count': destinations.length,
       'total_duration': totalDuration,
@@ -278,9 +319,20 @@ class SavedRouteManager {
   }
 
   String _getMonthName(int m) {
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
     return (m >= 1 && m <= 12) ? months[m - 1] : '';
   }
 }
-
-

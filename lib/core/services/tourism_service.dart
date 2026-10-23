@@ -1,4 +1,6 @@
+import '../utils/user_errors.dart';
 import 'dart:convert';
+import 'api_response.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../constants/api_constants.dart';
@@ -20,43 +22,46 @@ class TourismService {
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
           if (token != null) 'Authorization': 'Bearer $token',
         },
       );
 
-      final responseData = jsonDecode(response.body);
+      final responseData = decodeApiResponse(response);
 
       if (response.statusCode == 200) {
         // Assuming the response is either a list directly, or a map with a 'data' array.
         // E.g. {"data": [{"id": 1, "name": "Nature"}, ...]} OR [{"id": 1, "name": "Nature"}, ...]
-        List<dynamic> categoriesList = [];
-        
-        if (responseData is List) {
-          categoriesList = responseData;
-        } else if (responseData is Map && responseData.containsKey('data')) {
-          categoriesList = responseData['data'] as List<dynamic>;
+        final categoriesList =
+            responseData is List
+                ? responseData
+                : responseData is Map
+                ? responseData['data'] ?? responseData['categories']
+                : null;
+        if (categoriesList is! List) {
+          return {'success': false, 'message': UserErrors.unavailable};
         }
 
-        return {
-          'success': true,
-          'data': categoriesList,
-        };
+        return {'success': true, 'data': categoriesList};
       } else {
         return {
           'success': false,
-          'message': responseData['message'] ?? 'Failed to load tourism categories.',
+          'message':
+              responseData['message'] ??
+              responseData['msg'] ??
+              UserErrors.unavailable,
         };
       }
     } catch (e) {
-      return {
-        'success': false,
-        'message': 'An error occurred: $e',
-      };
+      return {'success': false, 'message': UserErrors.fromError(e)};
     }
   }
+
   // GET /api/tourism/latest
   Future<Map<String, dynamic>> getLatestTourism() async {
-    final url = Uri.parse('${ApiConstants.baseUrl}${ApiConstants.latestTourism}');
+    final url = Uri.parse(
+      '${ApiConstants.baseUrl}${ApiConstants.latestTourism}',
+    );
     final token = await _getToken();
 
     try {
@@ -70,7 +75,7 @@ class TourismService {
         },
       );
 
-      final responseData = jsonDecode(response.body);
+      final responseData = decodeApiResponse(response);
 
       if (response.statusCode == 200) {
         List<dynamic> dataList = [];
@@ -80,10 +85,7 @@ class TourismService {
           dataList = responseData['data'] as List<dynamic>;
         }
 
-        return {
-          'success': true,
-          'data': dataList,
-        };
+        return {'success': true, 'data': dataList};
       } else {
         return {
           'success': false,
@@ -91,15 +93,15 @@ class TourismService {
         };
       }
     } catch (e) {
-      return {
-        'success': false,
-        'message': 'An error occurred: $e',
-      };
+      return {'success': false, 'message': UserErrors.fromError(e)};
     }
   }
 
   // PUT /api/tourism/{id}
-  Future<Map<String, dynamic>> updateTourismCategory(String id, Map<String, dynamic> data) async {
+  Future<Map<String, dynamic>> updateTourismCategory(
+    String id,
+    Map<String, dynamic> data,
+  ) async {
     final url = Uri.parse('${ApiConstants.baseUrl}${ApiConstants.tourism}/$id');
     final token = await _getToken();
 
@@ -114,7 +116,7 @@ class TourismService {
         body: jsonEncode(data),
       );
 
-      final responseData = jsonDecode(response.body);
+      final responseData = decodeApiResponse(response);
 
       if (response.statusCode == 200) {
         return {
@@ -128,10 +130,7 @@ class TourismService {
         };
       }
     } catch (e) {
-      return {
-        'success': false,
-        'message': 'An error occurred: $e',
-      };
+      return {'success': false, 'message': UserErrors.fromError(e)};
     }
   }
 
@@ -150,7 +149,7 @@ class TourismService {
         },
       );
 
-      final responseData = jsonDecode(response.body);
+      final responseData = decodeApiResponse(response);
 
       if (response.statusCode == 200) {
         return {
@@ -164,10 +163,7 @@ class TourismService {
         };
       }
     } catch (e) {
-      return {
-        'success': false,
-        'message': 'An error occurred: $e',
-      };
+      return {'success': false, 'message': UserErrors.fromError(e)};
     }
   }
 }

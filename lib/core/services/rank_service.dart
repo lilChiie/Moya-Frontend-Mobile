@@ -1,4 +1,5 @@
-import 'dart:convert';
+import '../utils/user_errors.dart';
+import 'api_response.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../constants/api_constants.dart';
@@ -26,25 +27,29 @@ class RankService {
       );
 
       if (response.statusCode == 200) {
-        final Map<String, dynamic> responseData = jsonDecode(response.body);
-        
+        final Map<String, dynamic> responseData = decodeApiResponse(response);
+
         if (responseData['success'] == true) {
           final List<dynamic> data = responseData['data'];
-          
-          final List<Map<String, dynamic>> parsedData = data.map((e) {
-            return {
-              'id': e['id'],
-              'name': e['name'],
-              'min_point': e['min_point'],
-              'max_point': e['max_point'],
-              'avatar': e['avatar'] != null ? e['avatar'].toString().replaceFirst('http://', 'https://') : null,
-            };
-          }).toList();
-          
-          return {
-            'success': true,
-            'data': parsedData,
-          };
+
+          final List<Map<String, dynamic>> parsedData =
+              data.map((e) {
+                return {
+                  'id': e['id'],
+                  'name': e['name'],
+                  'min_point': e['min_point'],
+                  'max_point': e['max_point'],
+                  'avatar':
+                      e['avatar'] != null
+                          ? e['avatar'].toString().replaceFirst(
+                            'http://',
+                            'https://',
+                          )
+                          : null,
+                };
+              }).toList();
+
+          return {'success': true, 'data': parsedData};
         } else {
           return {
             'success': false,
@@ -55,16 +60,12 @@ class RankService {
       } else {
         return {
           'success': false,
-          'message': 'Server error: ${response.statusCode}',
+          'message': UserErrors.forStatus(response.statusCode),
           'data': [],
         };
       }
     } catch (e) {
-      return {
-        'success': false,
-        'message': 'Exception occurred: $e',
-        'data': [],
-      };
+      return {'success': false, 'message': UserErrors.fromError(e), 'data': []};
     }
   }
 }

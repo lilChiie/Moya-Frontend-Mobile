@@ -43,3 +43,9 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Local API configuration and manual API diagnostics
+/lib/core/constants/api_constants.dart
+/test_api*.dart
+/scratch/test_*.dart
+/scratch/diagnose_mobile_api.py

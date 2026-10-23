@@ -12,6 +12,7 @@ import '../features/notification/notification_page.dart';
 import '../features/route_recommendation/route_recommendation_form_page.dart';
 import '../features/route_recommendation/route_recommendation_page.dart';
 import '../features/report/report_condition_page.dart';
+import '../features/categories/categories_page.dart';
 
 class AppRoutes {
   static const String splash = '/';
@@ -22,6 +23,7 @@ class AppRoutes {
   static const String mainNav = '/main_nav';
 
   static const String destinations = '/destinations';
+  static const String categories = '/categories';
   static const String leaderboard = '/leaderboard';
   static const String notification = '/notification';
   static const String routeForm = '/route_form';
@@ -36,6 +38,7 @@ class AppRoutes {
       register: (context) => const RegisterPage(),
       mainNav: (context) => const MainNavigationPage(),
       destinations: (context) => const DestinationPage(),
+      categories: (context) => const CategoriesPage(),
       '/destination_detail': (context) => const DestinationDetailPage(),
       leaderboard: (context) => const LeaderboardPage(),
       notification: (context) => const NotificationPage(),

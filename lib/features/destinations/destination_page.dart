@@ -132,6 +132,11 @@ class _DestinationPageState extends State<DestinationPage> {
         _isLoadingDestinations = false;
       });
       _calculateDistances();
+      if (result['success'] != true) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(result['message']?.toString() ?? 'Failed to load destinations.')),
+        );
+      }
     }
   }
 

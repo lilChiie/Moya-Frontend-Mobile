@@ -1,3 +1,5 @@
+import '../utils/user_errors.dart';
+import 'api_response.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -11,7 +13,9 @@ class AccessibilityService {
 
   // GET /api/accessibility
   Future<Map<String, dynamic>> getAccessibilityNeeds() async {
-    final url = Uri.parse('${ApiConstants.baseUrl}${ApiConstants.accessibility}');
+    final url = Uri.parse(
+      '${ApiConstants.baseUrl}${ApiConstants.accessibility}',
+    );
     final token = await _getToken();
 
     try {
@@ -25,38 +29,38 @@ class AccessibilityService {
         },
       );
 
-      final responseData = jsonDecode(response.body);
+      final responseData = decodeApiResponse(response);
 
       if (response.statusCode == 200) {
         List<dynamic> dataList = [];
-        
+
         if (responseData is List) {
           dataList = responseData;
         } else if (responseData is Map && responseData.containsKey('data')) {
           dataList = responseData['data'] as List<dynamic>;
         }
 
-        return {
-          'success': true,
-          'data': dataList,
-        };
+        return {'success': true, 'data': dataList};
       } else {
         return {
           'success': false,
-          'message': responseData['message'] ?? 'Failed to load accessibility needs.',
+          'message':
+              responseData['message'] ?? 'Failed to load accessibility needs.',
         };
       }
     } catch (e) {
-      return {
-        'success': false,
-        'message': 'An error occurred: $e',
-      };
+      return {'success': false, 'message': UserErrors.fromError(e)};
     }
   }
 
   // PUT /api/accessibility/{id}
-  Future<Map<String, dynamic>> updateAccessibilityNeed(String id, Map<String, dynamic> data) async {
-    final url = Uri.parse('${ApiConstants.baseUrl}${ApiConstants.accessibility}/$id');
+  Future<Map<String, dynamic>> updateAccessibilityNeed(
+    String id,
+    Map<String, dynamic> data,
+  ) async {
+    final url = Uri.parse(
+      '${ApiConstants.baseUrl}${ApiConstants.accessibility}/$id',
+    );
     final token = await _getToken();
 
     try {
@@ -70,7 +74,7 @@ class AccessibilityService {
         body: jsonEncode(data),
       );
 
-      final responseData = jsonDecode(response.body);
+      final responseData = decodeApiResponse(response);
 
       if (response.statusCode == 200) {
         return {
@@ -84,16 +88,15 @@ class AccessibilityService {
         };
       }
     } catch (e) {
-      return {
-        'success': false,
-        'message': 'An error occurred: $e',
-      };
+      return {'success': false, 'message': UserErrors.fromError(e)};
     }
   }
 
   // DELETE /api/accessibility/{id}
   Future<Map<String, dynamic>> deleteAccessibilityNeed(String id) async {
-    final url = Uri.parse('${ApiConstants.baseUrl}${ApiConstants.accessibility}/$id');
+    final url = Uri.parse(
+      '${ApiConstants.baseUrl}${ApiConstants.accessibility}/$id',
+    );
     final token = await _getToken();
 
     try {
@@ -106,7 +109,7 @@ class AccessibilityService {
         },
       );
 
-      final responseData = jsonDecode(response.body);
+      final responseData = decodeApiResponse(response);
 
       if (response.statusCode == 200) {
         return {
@@ -120,10 +123,7 @@ class AccessibilityService {
         };
       }
     } catch (e) {
-      return {
-        'success': false,
-        'message': 'An error occurred: $e',
-      };
+      return {'success': false, 'message': UserErrors.fromError(e)};
     }
   }
 }

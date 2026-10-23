@@ -1,4 +1,5 @@
-import 'dart:convert';
+import '../utils/user_errors.dart';
+import 'api_response.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../constants/api_constants.dart';
@@ -11,46 +12,53 @@ class DestinationService {
 
   // GET /api/destinations
   Future<Map<String, dynamic>> getDestinations() async {
-    final url = Uri.parse('${ApiConstants.baseUrl}${ApiConstants.destinations}');
+    final url = Uri.parse(
+      '${ApiConstants.baseUrl}${ApiConstants.destinations}',
+    );
     final token = await _getToken();
 
     try {
-      final response = await http.get(
-        url,
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          'ngrok-skip-browser-warning': 'true',
-          if (token != null) 'Authorization': 'Bearer $token',
-        },
-      );
+      final response = await http
+          .get(
+            url,
+            headers: {
+              'Content-Type': 'application/json',
+              'Accept': 'application/json',
+              'ngrok-skip-browser-warning': 'true',
+              if (token != null) 'Authorization': 'Bearer $token',
+            },
+          )
+          .timeout(const Duration(seconds: 20));
 
-      final responseData = jsonDecode(response.body);
+      if (response.statusCode == 401 || response.statusCode == 422) {
+        return {'success': false, 'message': UserErrors.session};
+      }
+
+      final responseData = decodeApiResponse(response);
 
       if (response.statusCode == 200) {
-        List<dynamic> dataList = [];
-        
-        if (responseData is List) {
-          dataList = responseData;
-        } else if (responseData is Map && responseData.containsKey('data')) {
-          dataList = responseData['data'] as List<dynamic>;
+        final dataList =
+            responseData is List
+                ? responseData
+                : responseData is Map
+                ? responseData['data'] ?? responseData['destinations']
+                : null;
+        if (dataList is! List) {
+          return {'success': false, 'message': UserErrors.unavailable};
         }
 
-        return {
-          'success': true,
-          'data': dataList,
-        };
+        return {'success': true, 'data': dataList};
       } else {
         return {
           'success': false,
-          'message': responseData['message'] ?? 'Failed to load destinations.',
+          'message':
+              responseData['message'] ??
+              responseData['msg'] ??
+              UserErrors.unavailable,
         };
       }
     } catch (e) {
-      return {
-        'success': false,
-        'message': 'An error occurred: $e',
-      };
+      return {'success': false, 'message': UserErrors.fromError(e)};
     }
   }
 }

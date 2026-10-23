@@ -1,4 +1,5 @@
-import 'dart:convert';
+import '../utils/user_errors.dart';
+import 'api_response.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../constants/api_constants.dart';
@@ -9,7 +10,7 @@ class LeaderboardService {
     final token = prefs.getString('access_token');
 
     final url = Uri.parse('${ApiConstants.baseUrl}${ApiConstants.leaderboard}');
-    
+
     try {
       final response = await http.get(
         url,
@@ -20,13 +21,10 @@ class LeaderboardService {
         },
       );
 
-      final responseData = jsonDecode(response.body);
+      final responseData = decodeApiResponse(response);
 
       if (response.statusCode == 200 && responseData['success'] == true) {
-        return {
-          'success': true,
-          'data': responseData['data'],
-        };
+        return {'success': true, 'data': responseData['data']};
       } else {
         return {
           'success': false,
@@ -34,10 +32,7 @@ class LeaderboardService {
         };
       }
     } catch (e) {
-      return {
-        'success': false,
-        'message': 'An error occurred: $e',
-      };
+      return {'success': false, 'message': UserErrors.fromError(e)};
     }
   }
 }

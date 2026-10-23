@@ -7,6 +7,8 @@ import '../../core/services/review_service.dart';
 import '../../core/services/accessibility_service.dart';
 import '../../core/services/route_service.dart';
 import '../../core/utils/dialog_utils.dart';
+import '../report/report_clean_condition_page.dart';
+import '../report/clean_report_replies.dart';
 
 class DestinationDetailPage extends StatefulWidget {
   const DestinationDetailPage({super.key});
@@ -377,6 +379,7 @@ class _DestinationDetailPageState
             }
 
             return {
+              ...Map<String, dynamic>.from(e),
               'id': e['id']?.toString() ?? '-',
               'destination_id': e['destination_id'],
               'text': e['user_notes'] ?? '',
@@ -396,8 +399,23 @@ class _DestinationDetailPageState
 
   // Reports are loaded from API â€” see _fetchLatestReports()
 
+  Future<void> _replyToReport(Map<String, dynamic> report) async {
+    final reportId = int.tryParse(report['id'].toString());
+    final destinationId = int.tryParse(report['destination_id'].toString());
+    if (reportId == null || destinationId == null) return;
+    final destination = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
+    await Navigator.push<void>(context, MaterialPageRoute(builder: (_) => ReportCleanConditionPage(
+      reportId: reportId,
+      destinationId: destinationId,
+      destinationName: (report['destination_name'] ?? _liveDestDetail?['name'] ?? destination?['title'] ?? destination?['name'] ?? 'Destination').toString(),
+      reportNotes: (report['text'] ?? report['user_notes'] ?? '').toString(),
+    )));
+    if (mounted) await _fetchReports(destinationId);
+  }
+
   void _showReportModal(BuildContext context, Map<String, dynamic> report) {
     final imageUrl = report['image_url'] as String?;
+    final replies = report['clean_reports'] is List ? report['clean_reports'] as List : <dynamic>[];
     showDialog(
       context: context,
       builder: (ctx) => Dialog(
@@ -440,7 +458,7 @@ class _DestinationDetailPageState
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        const Text('AI Score (Confidence)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                        const Text('Severity Score', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                           decoration: BoxDecoration(
@@ -455,12 +473,13 @@ class _DestinationDetailPageState
                       ],
                     ),
                     const SizedBox(height: 16),
-                    const Text('Admin Notes:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                    const SizedBox(height: 4),
-                    Text(
-                      report['admin_notes'],
-                      style: TextStyle(color: Colors.grey.shade700, fontSize: 14, height: 1.4),
-                    ),
+                    Text('Clean-up evidence (${report['clean_reports_count'] ?? replies.length})',
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                    const SizedBox(height: 8),
+                    Text(report['status'] == 'resolved'
+                        ? 'Resolved after admin verification.'
+                        : 'Evidence is reviewed by an admin before this report is resolved.',
+                      style: TextStyle(color: Colors.grey.shade700, fontSize: 13, height: 1.4)),
                     const SizedBox(height: 24),
                     SizedBox(
                       width: double.infinity,
@@ -1255,7 +1274,7 @@ class _DestinationDetailPageState
                         Center(
                           child: Padding(
                             padding: const EdgeInsets.all(24),
-                            child: Text('Belum ada laporan untuk destinasi ini.',
+                            child: Text('No reports for this destination yet.',
                                 style: TextStyle(color: Colors.grey.shade500)),
                           ),
                         )
@@ -1270,7 +1289,9 @@ class _DestinationDetailPageState
                             final report = _reports[index];
                             final isResolved = report['status'] == 'resolved';
                             final imageUrl = report['image_url'] as String?;
-                            return InkWell(
+                            return Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [InkWell(
                               onTap: () => _showReportModal(context, report),
                               borderRadius: BorderRadius.circular(16),
                               child: Container(
@@ -1344,7 +1365,7 @@ class _DestinationDetailPageState
                                           Text(
                                             report['text']?.isNotEmpty == true
                                                 ? report['text']
-                                                : '(Tidak ada catatan)',
+                                                : 'No notes provided',
                                             maxLines: 2,
                                             overflow: TextOverflow.ellipsis,
                                             style: TextStyle(
@@ -1353,12 +1374,32 @@ class _DestinationDetailPageState
                                               height: 1.5,
                                             ),
                                           ),
+                                          const SizedBox(height: 8),
+                                          Text('${report['clean_reports_count'] ?? (report['clean_reports'] is List ? (report['clean_reports'] as List).length : 0)} clean replies',
+                                            style: const TextStyle(fontSize: 12, color: Color(0xFF5B7D46), fontWeight: FontWeight.w600)),
+                                          const SizedBox(height: 8),
+                                          OutlinedButton(
+                                            onPressed: () => _replyToReport(report),
+                                            style: OutlinedButton.styleFrom(
+                                              foregroundColor: const Color(0xFF5B7D46),
+                                              side: const BorderSide(color: Color(0xFF5B7D46)),
+                                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                            ),
+                                            child: const Text('Report Clean Condition', textAlign: TextAlign.center),
+                                          ),
                                         ],
                                       ),
                                     ),
                                   ],
                                 ),
                               ),
+                            ),
+                            if (report['clean_reports'] is List)
+                              CleanReportReplies(
+                                key: ValueKey('replies-${report['id']}'),
+                                replies: report['clean_reports'] as List,
+                              ),
+                            ],
                             );
                           },
                         ),

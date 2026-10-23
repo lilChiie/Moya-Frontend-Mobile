@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../app/routes.dart';
 import '../../core/services/destination_service.dart';
 import '../../core/services/tourism_service.dart';
+import '../../core/utils/category_icons.dart';
 import '../profile/profile_page.dart';
 
 class HomePage extends StatefulWidget {
@@ -18,6 +19,8 @@ class _HomePageState extends State<HomePage> {
   Position? _currentPosition;
   bool _isLoadingDestinations = true;
   bool _isLoadingCategories = true;
+  String? _destinationError;
+  String? _categoryError;
 
   String _userName = 'New User';
 
@@ -29,39 +32,7 @@ class _HomePageState extends State<HomePage> {
   // ============================================================
 
   IconData _getIconForCategory(String title) {
-    title = title.toLowerCase();
-
-    if (title.contains('nature') ||
-        title.contains('gunung') ||
-        title.contains('pantai')) {
-      return Icons.park;
-    }
-
-    if (title.contains('culture') || title.contains('history')) {
-      return Icons.theater_comedy;
-    }
-
-    if (title.contains('shop') || title.contains('mall')) {
-      return Icons.shopping_bag;
-    }
-
-    if (title.contains('food') ||
-        title.contains('culinary') ||
-        title.contains('restaurant')) {
-      return Icons.restaurant;
-    }
-
-    if (title.contains('hotel') ||
-        title.contains('villa') ||
-        title.contains('resort')) {
-      return Icons.hotel;
-    }
-
-    if (title.contains('religion') || title.contains('mosque')) {
-      return Icons.mosque;
-    }
-
-    return Icons.attractions;
+    return categoryIcon(title);
   }
 
   // ============================================================
@@ -97,6 +68,7 @@ class _HomePageState extends State<HomePage> {
   // ============================================================
 
   Future<void> _fetchCategories() async {
+    setState(() => _categoryError = null);
     final tourismService = TourismService();
     final result = await tourismService.getTourismCategories();
 
@@ -117,6 +89,8 @@ class _HomePageState extends State<HomePage> {
         }
 
         _isLoadingCategories = false;
+        _categoryError = result['success'] == true
+            ? null : result['message']?.toString() ?? 'Failed to load categories.';
       });
     }
   }
@@ -126,6 +100,7 @@ class _HomePageState extends State<HomePage> {
   // ============================================================
 
   Future<void> _fetchDestinations() async {
+    setState(() => _destinationError = null);
     final destinationService = DestinationService();
     final result = await destinationService.getDestinations();
 
@@ -169,6 +144,8 @@ class _HomePageState extends State<HomePage> {
         }
 
         _isLoadingDestinations = false;
+        _destinationError = result['success'] == true
+            ? null : result['message']?.toString() ?? 'Failed to load destinations.';
       });
 
       _calculateDistances();
@@ -178,6 +155,20 @@ class _HomePageState extends State<HomePage> {
   // ============================================================
   // LOCATION PERMISSION
   // ============================================================
+
+  Widget _buildLoadError(String message, Future<void> Function() retry) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+      child: Column(children: [
+        Text(message, textAlign: TextAlign.center),
+        TextButton.icon(
+          onPressed: retry,
+          icon: const Icon(Icons.refresh),
+          label: const Text('Retry'),
+        ),
+      ]),
+    );
+  }
 
   Future<void> _checkLocationPermission() async {
     bool serviceEnabled;
@@ -477,7 +468,9 @@ class _HomePageState extends State<HomePage> {
                 ),
               ),
 
-              if (_destinations.isEmpty)
+              if (_destinationError != null)
+                _buildLoadError(_destinationError!, _fetchDestinations)
+              else if (_destinations.isEmpty)
                 const Padding(
                   padding: EdgeInsets.symmetric(
                     vertical: 40,
@@ -821,7 +814,9 @@ class _HomePageState extends State<HomePage> {
             // CATEGORY GRID
             // ====================================================
 
-            _categories.isEmpty
+            _categoryError != null
+                ? _buildLoadError(_categoryError!, _fetchCategories)
+                : _categories.isEmpty
 
                 ? const Padding(
                     padding: EdgeInsets.symmetric(
@@ -840,7 +835,7 @@ class _HomePageState extends State<HomePage> {
                       16,
                       4,
                       16,
-                      24,
+                      0,
                     ),
 
                     shrinkWrap: true,
@@ -848,8 +843,7 @@ class _HomePageState extends State<HomePage> {
                     physics:
                         const NeverScrollableScrollPhysics(),
 
-                    itemCount:
-                        _categories.length,
+                    itemCount: (_categories.length > 5 ? 5 : _categories.length) + 1,
 
                     gridDelegate:
                         const SliverGridDelegateWithFixedCrossAxisCount(
@@ -861,15 +855,15 @@ class _HomePageState extends State<HomePage> {
 
                           itemBuilder:
                               (context, index) {
+                            final isMore = index == (_categories.length > 5 ? 5 : _categories.length);
 
                             return GestureDetector(
                               onTap: () {
                                 Navigator.pushNamed(
                                   context,
-                                  AppRoutes.destinations,
+                                  isMore ? AppRoutes.categories : AppRoutes.destinations,
                                   arguments:
-                                      _categories[index]
-                                          ['title'],
+                                      isMore ? null : _categories[index]['title'],
                                 );
                               },
 
@@ -901,8 +895,7 @@ class _HomePageState extends State<HomePage> {
                                     ),
 
                                     child: Icon(
-                                      _categories[index]
-                                          ['icon'],
+                                      isMore ? Icons.more_horiz : _categories[index]['icon'],
 
                                       color: const Color(
                                         0xFF5B7D46,
@@ -917,8 +910,7 @@ class _HomePageState extends State<HomePage> {
                                   ),
 
                                   Text(
-                                    _categories[index]
-                                        ['title'],
+                                    isMore ? 'More' : _categories[index]['title'],
 
                                     textAlign:
                                         TextAlign.center,
@@ -949,7 +941,7 @@ class _HomePageState extends State<HomePage> {
             // ====================================================
 
             Padding(
-              padding: const EdgeInsets.all(24),
+              padding: const EdgeInsets.fromLTRB(24, 18, 24, 24),
 
               child: Container(
                 width: double.infinity,

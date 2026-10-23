@@ -1,3 +1,5 @@
+import '../utils/user_errors.dart';
+import 'api_response.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -12,18 +14,22 @@ class ReviewService {
   // GET /api/destinations/{id} → reviews are inside the response
   Future<Map<String, dynamic>> getDestinationReviews(int destinationId) async {
     final url = Uri.parse(
-        '${ApiConstants.baseUrl}${ApiConstants.destinations}$destinationId');
+      '${ApiConstants.baseUrl}${ApiConstants.destinations}$destinationId',
+    );
     final token = await _getToken();
 
     try {
-      final response = await http.get(url, headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        'ngrok-skip-browser-warning': 'true',
-        if (token != null) 'Authorization': 'Bearer $token',
-      });
+      final response = await http.get(
+        url,
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
+          if (token != null) 'Authorization': 'Bearer $token',
+        },
+      );
 
-      final responseData = jsonDecode(response.body);
+      final responseData = decodeApiResponse(response);
 
       if (response.statusCode == 200) {
         List<dynamic> reviews = [];
@@ -42,19 +48,18 @@ class ReviewService {
           reviews = responseData;
         }
 
-        return {
-          'success': true,
-          'data': reviews,
-          'destination': destDetail,
-        };
+        return {'success': true, 'data': reviews, 'destination': destDetail};
       } else {
         return {
           'success': false,
-          'message': responseData['message'] ?? responseData['msg'] ?? 'Failed to load reviews..',
+          'message':
+              responseData['message'] ??
+              responseData['msg'] ??
+              'Failed to load reviews..',
         };
       }
     } catch (e) {
-      return {'success': false, 'message': 'Something went wrong.: $e'};
+      return {'success': false, 'message': UserErrors.fromError(e)};
     }
   }
 
@@ -64,7 +69,8 @@ class ReviewService {
     required String review,
   }) async {
     final url = Uri.parse(
-        '${ApiConstants.baseUrl}${ApiConstants.destinations}$destinationId/add-review');
+      '${ApiConstants.baseUrl}${ApiConstants.destinations}$destinationId/add-review',
+    );
     final token = await _getToken();
 
     try {
@@ -79,7 +85,7 @@ class ReviewService {
         body: jsonEncode({'comment': review}),
       );
 
-      final responseData = jsonDecode(response.body);
+      final responseData = decodeApiResponse(response);
 
       if (response.statusCode == 200 || response.statusCode == 201) {
         return {
@@ -89,11 +95,14 @@ class ReviewService {
       } else {
         return {
           'success': false,
-          'message': responseData['message'] ?? responseData['msg'] ?? 'Failed to send review.',
+          'message':
+              responseData['message'] ??
+              responseData['msg'] ??
+              'Failed to send review.',
         };
       }
     } catch (e) {
-      return {'success': false, 'message': 'Something went wrong.: $e'};
+      return {'success': false, 'message': UserErrors.fromError(e)};
     }
   }
 }

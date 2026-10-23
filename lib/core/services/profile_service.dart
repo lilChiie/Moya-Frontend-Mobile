@@ -1,3 +1,5 @@
+import '../utils/user_errors.dart';
+import 'api_response.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -7,9 +9,9 @@ class ProfileService {
   Future<Map<String, dynamic>> getProfile() async {
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('access_token');
-    
+
     if (token == null) {
-      return {'success': false, 'message': 'No access token found'};
+      return {'success': false, 'message': UserErrors.session};
     }
 
     final url = Uri.parse('${ApiConstants.baseUrl}${ApiConstants.profile}');
@@ -23,13 +25,10 @@ class ProfileService {
         },
       );
 
-      final responseData = jsonDecode(response.body);
+      final responseData = decodeApiResponse(response);
 
       if (response.statusCode == 200 && responseData['success'] == true) {
-        return {
-          'success': true,
-          'data': responseData['data'],
-        };
+        return {'success': true, 'data': responseData['data']};
       } else {
         return {
           'success': false,
@@ -37,23 +36,23 @@ class ProfileService {
         };
       }
     } catch (e) {
-      return {
-        'success': false,
-        'message': 'An error occurred: $e',
-      };
+      return {'success': false, 'message': UserErrors.fromError(e)};
     }
   }
 
-  Future<Map<String, dynamic>> updateProfile({String? name, String? password}) async {
+  Future<Map<String, dynamic>> updateProfile({
+    String? name,
+    String? password,
+  }) async {
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('access_token');
-    
+
     if (token == null) {
-      return {'success': false, 'message': 'No access token found'};
+      return {'success': false, 'message': UserErrors.session};
     }
 
     final url = Uri.parse('${ApiConstants.baseUrl}${ApiConstants.profile}');
-    
+
     Map<String, dynamic> body = {};
     if (name != null && name.isNotEmpty) body['name'] = name;
     if (password != null && password.isNotEmpty) body['password'] = password;
@@ -70,12 +69,12 @@ class ProfileService {
         body: jsonEncode(body),
       );
 
-      final responseData = jsonDecode(response.body);
+      final responseData = decodeApiResponse(response);
 
       if (response.statusCode == 200 && responseData['success'] == true) {
         // Update local cache
         if (name != null && name.isNotEmpty) {
-           await prefs.setString('user_name', name);
+          await prefs.setString('user_name', name);
         }
         return {
           'success': true,
@@ -89,10 +88,7 @@ class ProfileService {
         };
       }
     } catch (e) {
-      return {
-        'success': false,
-        'message': 'An error occurred: $e',
-      };
+      return {'success': false, 'message': UserErrors.fromError(e)};
     }
   }
 }
